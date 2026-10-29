@@ -48,7 +48,7 @@
     title: String(dataAttrs.title || globalCfg.title || '小幫手'),
     greeting: String(
       dataAttrs.greeting || globalCfg.greeting ||
-      '你好！我是小幫手 🤖 有什麼想問的都可以直接說～',
+      '你好！我是小幫手 🤖 有什麼想問的都可以直接說～（一次最多 50 字）',
     ),
   }
   if (!cfg.server) cfg.server = defaultServer()
@@ -119,6 +119,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   font: inherit; font-size: 14px; outline: none; min-width: 0; background: #fff; color: #111;
 }
 .footer input:focus { border-color: ${cfg.accent}; }
+.footer .count { flex: 0 0 auto; font-size: 11px; color: #8aa; min-width: 42px; text-align: right; align-self: center; }
+.footer .count.limit { color: #ef4444; font-weight: 700; }
 .footer .send {
   background: ${cfg.accent}; color: #fff; width: 40px; height: 40px; flex: 0 0 auto;
   border-radius: 50%; font-size: 17px; align-self: center; display: flex; align-items: center; justify-content: center;
@@ -198,13 +200,15 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   const list = el('div', 'list')
   const status = el('div', 'status')
   const footer = el('div', 'footer')
+  const MAX_LEN = 50 // 訪客提問一次最多 50 字
   const input = document.createElement('input')
   input.type = 'text'
-  input.placeholder = '輸入訊息…（Enter 送出）'
-  input.maxLength = 2000
+  input.placeholder = '輸入問題…（Enter 送出，最多 50 字）'
+  input.maxLength = MAX_LEN
+  const counter = el('span', 'count', '0/' + MAX_LEN)
   const sendBtn = el('button', 'send', '➤')
   sendBtn.disabled = true
-  footer.append(input, sendBtn)
+  footer.append(input, counter, sendBtn)
   panel.append(head, list, status, footer)
 
   root.append(styleTag, fab, panel)
@@ -229,6 +233,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
     const active = state === 'ready'
     input.disabled = !active
     sendBtn.disabled = !active || !input.value.trim()
+    counter.textContent = input.value.length + '/' + MAX_LEN
+    counter.className = 'count' + (input.value.length >= MAX_LEN ? ' limit' : '')
     if (state === 'ready') status.textContent = ''
   }
 
@@ -363,7 +369,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   function sendText() {
     const text = input.value.trim()
     if (!text || state !== 'ready' || !ws || ws.readyState !== 1) return
-    ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: text.slice(0, 2000) }))
+    ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: text.slice(0, MAX_LEN) }))
     input.value = ''
     refreshComposer()
   }

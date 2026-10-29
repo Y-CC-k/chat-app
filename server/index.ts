@@ -44,6 +44,7 @@ import {
   translateText,
   tutorIntro,
   isMostlyChinese,
+  isMostlyEnglish,
   type Command,
 } from './bot'
 import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
@@ -179,6 +180,12 @@ function persistMessage(message: ChatMessage): void {
   void ensureRoom.then(() => db.insertMessage(message)).catch((error) => {
     console.error('[chat] 訊息存入 Supabase 失敗', error instanceof Error ? error.message : error)
   })
+}
+
+/** 另存一條機器人問答記錄到 Supabase 的 bot_qa_logs（fire-and-forget；房間解散不受影響） */
+function logBotQa(question: string, answer: string, source: string, asker: string, roomName: string): void {
+  if (!db) return
+  void db.insertBotQa({ question, answer, source, nickname: asker, roomName })
 }
 
 /** 房間資料有變動（例如機器人開關）時更新 Supabase */
@@ -333,11 +340,12 @@ function sweepRooms(): void {
   }
 }
 
-/** 定時清除 Supabase 裡超過保留期（14 天）的訊息 */
+/** 定時清除 Supabase 裡超過保留期（14 天）的訊息與機器人問答記錄 */
 function scheduleSupabasePurge(): void {
   if (!db) return
   const flush = () => {
     void db.purgeOldMessages()
+    void db.purgeOldBotQa()
   }
   flush()
   setInterval(flush, 6 * 60 * 60 * 1000).unref()
@@ -490,8 +498,8 @@ async function deliverTts(room: Room, message: ChatMessage, voice: 'en' | 'zh'):
   })
 }
 
-/** 小幫手智慧回覆：有 LLM 就走 LLM，失敗退回罐頭回覆 */
-async function helperSmartReply(room: Room, question: boolean): Promise<void> {
+/** 小幫手智慧回覆：有 LLM 就走 LLM，失敗退回罐頭回覆；問答同時另存記錄 */
+async function helperSmartReply(room: Room, questionText: string, question: boolean, asker: string): Promise<void> {
   const context: { role: 'user' | 'assistant'; content: string }[] = []
   for (const m of room.messages.slice(-14)) {
     if (m.kind !== 'chat') continue
@@ -506,10 +514,13 @@ async function helperSmartReply(room: Room, question: boolean): Promise<void> {
   botTyping(room, HELPER, false)
   if (answer) {
     botDeliver(room, answer)
+    logBotQa(questionText, answer, 'llm', asker, room.name)
     return
   }
   // 沒有 LLM 或呼叫失敗：沿用罐頭回覆
-  botDeliver(room, question ? fallbackReply() : greetingReply())
+  const fallback = question ? fallbackReply() : greetingReply()
+  botDeliver(room, fallback)
+  logBotQa(questionText, fallback, 'fallback', asker, room.name)
 }
 
 /** 公開版 bot 回覆：先顯示「正在輸入」，延遲後播給全房間並存入歷史 */
@@ -522,12 +533,15 @@ function botReplyPublic(room: Room, text: string, persona: BotPersona = HELPER):
   }, delay)
 }
 
-/** 英文助教：翻譯（亞洲時間可能需數秒）並唸出 */
-function tutorTranslateReply(room: Room, query: string): void {
+/** 英文助教：翻譯（亞洲時間可能需數秒）並唸出；問答同時另存記錄 */
+function tutorTranslateReply(room: Room, query: string, asker: string): void {
   if (!rooms.has(room.id)) return
   botTyping(room, TUTOR, true)
   translateText(query)
-    .then((translated) => botDeliver(room, translated, TUTOR))
+    .then((translated) => {
+      botDeliver(room, translated, TUTOR)
+      if (isMostlyChinese(query) || isMostlyEnglish(query)) logBotQa(query, translated, 'tutor', asker, room.name)
+    })
     .catch(() => botDeliver(room, '⚠️ 翻譯服務暫時無法連線，請稍後再試。', TUTOR))
     .finally(() => botTyping(room, TUTOR, false))
 }
@@ -578,7 +592,7 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
       botReplyPrivate(conn, room.id, tutorIntro(), TUTOR)
       return
     }
-    tutorTranslateReply(room, cmd.args)
+    tutorTranslateReply(room, cmd.args, conn.nickname)
     return
   }
 
@@ -739,14 +753,14 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       if (!query) {
         botReplyPublic(room, tutorIntro(), TUTOR)
       } else {
-        tutorTranslateReply(room, query)
+        tutorTranslateReply(room, query, conn.nickname)
       }
       return
     }
 
     // 英文教室模式：自己的訊息自動翻譯處理
     if (conn.tutorMode) {
-      tutorTranslateReply(room, text)
+      tutorTranslateReply(room, text, conn.nickname)
       return
     }
 
@@ -756,9 +770,10 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     if (room.botEnabled || mention) {
       if (faqHit) {
         botReplyPublic(room, faqHit.answer)
+        logBotQa(text, faqHit.answer, 'faq', conn.nickname, room.name)
       } else if (mention) {
         // 點名小幫手：智慧答詢（LLM，未設定則罐頭）
-        void helperSmartReply(room, isQuestion(text))
+        void helperSmartReply(room, text, isQuestion(text), conn.nickname)
       }
     }
     return

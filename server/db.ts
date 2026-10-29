@@ -49,6 +49,16 @@ interface DbMessageRow {
   ts: number
 }
 
+/** 機器人問答記錄（另存於 bot_qa_logs） */
+export interface BotQaEntry {
+  question: string
+  answer: string
+  /** faq | llm | fallback | tutor */
+  source: string
+  nickname: string
+  roomName: string
+}
+
 function roomToRow(room: ChatRoomRow) {
   return {
     id: room.id,
@@ -187,6 +197,25 @@ class SupabaseStore {
   /** 刪除一條 FAQ（/忘） */
   async deleteFaq(keyword: string): Promise<void> {
     await this.rest('DELETE', `chat_faqs?keyword=eq.${encodeURIComponent(keyword)}`)
+  }
+
+  /** 另存一條機器人問答記錄（bot_qa_logs；與聊天訊息分開存放，房間解散不影響） */
+  async insertBotQa(entry: BotQaEntry): Promise<void> {
+    await this.rest('POST', 'bot_qa_logs', [
+      {
+        question: entry.question.slice(0, 2000),
+        answer: entry.answer.slice(0, 2000),
+        source: entry.source,
+        nickname: entry.nickname.slice(0, 30),
+        room_name: entry.roomName.slice(0, 60),
+      },
+    ])
+  }
+
+  /** 清除逾期的舊問答記錄（保留期與訊息一致：14 天） */
+  async purgeOldBotQa(): Promise<void> {
+    const before = new Date(Date.now() - MESSAGE_RETENTION_MS).toISOString()
+    await this.rest('DELETE', `bot_qa_logs?created_at=lt.${encodeURIComponent(before)}`)
   }
 }
 

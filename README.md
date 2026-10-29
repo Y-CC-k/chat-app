@@ -14,6 +14,7 @@
 - 😊 表情符號面板、Enter 送出 / Shift+Enter 換行
 - 🔁 斷線自動重連（指數退避）
 - ☁️ 對話歷史可存 **Supabase**（各聊天室的完整對話流程、房間、FAQ；未設定時存 JSON 檔）
+- 📒 機器人問答**另存** `bot_qa_logs` 表（問題／回答／來源 faq・llm・fallback・tutor／提問者／房名；房間解散不影響，一樣 14 天後清除）
 - 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失；無 Supabase 時）
 - 🛡️ 敏感詞自動遮蔽（伺服器端統一過濾，學生輸入與 bot／LLM 回覆都會檢查）
 - 🕐 對話紀錄政策：畫面只顯示最近 **24 小時**；資料保留 **14 天** 後自動清除
@@ -88,6 +89,7 @@ bot 回覆前會先顯示「正在輸入…」延遲一陣子再回答，效果�
 - **零依賴、單檔**：`public/widget.js` 以 Shadow DOM 注入，不影響宿主頁樣式跨網站放置也沒問題（用 `wss` 自動安全連線）。
 - **預設行為**：開啟時自動建立一間私人「小幫手」房並啟用機器人；離開（關閉按鈕）房間自動解散，不留紀錄、不影響大廳。
 - **客製參數**：`data-nickname`（預設顯示暱稱）、`data-accent`（主題色）、`data-position`（right/left）、`data-image`（**按鈕用圖片**，例如校徽；標頭頭像也會跟著換）、`data-room`（改連指定房間）、`data-greeting`（開場白）。
+- **提問上限 50 字**：輸入框最多 50 字（開場白有提示、右下有計數器），避免學生一次丟太長的問題。
 - **API**：`window.ChatWidget.open() / close() / toggle() / config({ accent, nickname, ... })`。
 - 完整參數表與示範：部署後打開 `https://你的聊天室網址/widget-demo.html`。
 
