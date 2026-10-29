@@ -146,6 +146,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   styleTag.textContent = CSS
 
   // FAB／標頭頭像的內容：有 data-image 用圖片，否則用 emoji
+  const fab = el('button', 'fab')
   const badge = el('span', 'badge')
   function fabContent(closed) {
     fab.textContent = ''
