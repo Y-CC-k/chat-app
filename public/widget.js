@@ -289,10 +289,24 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
     addMessage({ kind: 'chat', senderId: '', senderName: cfg.bot, ts: 0, text: cfg.greeting })
   }
 
+  /** 先打一發 healthz「喚醒」休眠中的免費雲端伺服器（最多 18 秒），再連 WebSocket */
+  function wakeThenConnect() {
+    if (!state || state === 'idle' || state === 'failed') return // 期間被關掉了
+    fetch(scriptOrigin() + '/healthz', { signal: AbortSignal.timeout(18000) })
+      .catch(() => {})
+      .then(() => {
+        if (!state || state === 'idle' || state === 'failed') return
+        openSocket()
+      })
+  }
+  /** 正式入口：連線（先喚醒伺服器再開 WebSocket） */
   function connect() {
     if (ws && (state === 'connecting' || state === 'ready')) return
     clearTimeout(reconnectTimer)
-    setState('connecting', '連線中…')
+    setState('connecting', '正在喚醒伺服器…')
+    wakeThenConnect()
+  }
+  function openSocket() {
     try { ws = new WebSocket(cfg.server) } catch (e) {
       setState('failed', '連線失敗，請確認網址')
       return
