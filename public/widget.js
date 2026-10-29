@@ -332,6 +332,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
         }
         case 'chat': {
           if (msg.message.roomId !== myRoomId) return
+          // 隱藏機器人自動答詢的開／關確認訊息（widget 私聊情境不需要）
+          if (msg.message.senderName === cfg.bot && msg.message.text.indexOf('自動答詢') >= 0) return
           addMessage(msg.message)
           return
         }
