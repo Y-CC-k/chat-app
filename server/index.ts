@@ -39,6 +39,8 @@ import {
   isBotMention,
   isQuestion,
   isTutorMention,
+  isComplaint,
+  complaintReply,
   matchFaq,
   parseCommand,
   translateText,
@@ -761,6 +763,13 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     // 英文教室模式：自己的訊息自動翻譯處理
     if (conn.tutorMode) {
       tutorTranslateReply(room, text, conn.nickname)
+      return
+    }
+
+    // 抱怨／負面申訴語句：不交給 LLM 發揮，統一溫和導引洽學校處理
+    if (isComplaint(text)) {
+      botReplyPublic(room, complaintReply())
+      logBotQa(text, complaintReply(), 'complaint', conn.nickname, room.name)
       return
     }
 

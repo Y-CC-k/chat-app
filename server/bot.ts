@@ -31,6 +31,28 @@ export function isBotMention(text: string): boolean {
   return text.includes('小幫手')
 }
 
+// ── 抱怨／負面語句：統一導引洽學校處理 ──────────────────────────
+
+const COMPLAINT_WORDS = [
+  '抱怨', '投訴', '告狀', '不滿', '抗議', '檢舉', '討厭學校', '不想上學',
+  '不想去學校', '不想上課', '要我告', '告你', '告學校', '告老師', '罵學校', '罵老師',
+  '好討厭', '好煩', '很煩', '好生氣', '很生氣', '好難過', '很難過', '太不公平', '不公平',
+  '被欺負', '欺負我', '有人罵我', '威脅我',
+]
+
+/** 是否為抱怨語句（攻擊性／髒話由敏感詞遮蔽另一層處理；這裡抓情緒申訴類） */
+export function isComplaint(text: string): boolean {
+  return COMPLAINT_WORDS.some((word) => text.includes(word))
+}
+
+export function complaintReply(): string {
+  return [
+    '🤝 聽起來你可能不太開心，辛苦了！',
+    '把事情完整告訴學校的老師或主任，大家都會幫忙你喔。',
+    '📞 學校電話：(04)26562684',
+  ].join('\n')
+}
+
 /** 是否為問題句（以問號結尾或包含問號） */
 export function isQuestion(text: string): boolean {
   return /[?？]\s*$/.test(text) || text.includes('？')
