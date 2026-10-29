@@ -54,11 +54,24 @@
   if (!cfg.server) cfg.server = defaultServer()
 
   const LS_NICK = 'chat-widget-nickname'
+  const LS_NUID = 'chat-widget-nuid'
   function savedNickname() {
     try { return localStorage.getItem(LS_NICK) || '' } catch (_) { return '' }
   }
   function saveNickname(n) {
     try { localStorage.setItem(LS_NICK, n) } catch (_) { /* ignore */ }
+  }
+  // 每台瀏覽器一個穩定編號（100–999，存在 localStorage 不會變），
+  // 讓同一暱稱的多位訪客視為不同使用者（每人 1 間私人房的限額才不會互相擋）
+  function visitorNumber() {
+    try {
+      let n = localStorage.getItem(LS_NUID)
+      if (!n || !/^\d{3}$/.test(n)) {
+        n = String(100 + Math.floor(Math.random() * 900))
+        localStorage.setItem(LS_NUID, n)
+      }
+      return n
+    } catch (_) { return String(100 + (Date.now() % 900)) }
   }
 
   // ── 樣式（全部放進 shadow root，不污染宿主頁） ─────────────────────
@@ -220,7 +233,16 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   let state = 'idle' // idle | connecting | ready | failed
   let reconnectAttempts = 0
   let reconnectTimer = null
-  let nickname = savedNickname() || cfg.nickname || '訪客'
+  // 暱稱：有 data-nickname → 底名 + 瀏覽器編號（穩定）；沒有則用上次存的或「訪客+編號」
+  const VNUID = visitorNumber()
+  let nickname
+  if (cfg.nickname) {
+    nickname = cfg.nickname.replace(/-\d{3}$/, '') + '-' + VNUID
+    saveNickname(nickname)
+  } else {
+    nickname = savedNickname() || '訪客-' + VNUID
+    saveNickname(nickname)
+  }
   let openedManually = false
   let unread = 0
 
