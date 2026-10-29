@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>浮動小幫手 · 外掛示範</title>
+  <style>
+    body { font-family: system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif; max-width: 760px; margin: 48px auto; padding: 0 20px; color: #223; line-height: 1.7; }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    .tag { background: #06c75520; color: #06874a; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 700; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px 18px; border-radius: 12px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+    code.inline { background: #eef2f6; padding: 2px 6px; border-radius: 6px; font-size: 87%; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { border: 1px solid #e2e7ed; padding: 8px 12px; text-align: left; }
+    th { background: #f6f8fa; }
+  </style>
+</head>
+<body>
+  <h1><span class="tag">示範頁</span> 浮動小幫手外掛</h1>
+  <p>右下角那顆 💬 就是掛上去的浮動機器人 — 點開直接和「小幫手」對話，本頁只有下面這一段 script，其他都是普通網頁內容。</p>
+
+  <pre>&lt;script src="https://你的聊天室網址/widget.js" defer&gt;&lt;/script&gt;</pre>
+
+  <h2>一般掛法（自動連回 widget.js 的來源站）</h2>
+  <pre><code>&lt;script src="https://classroom-chat-u1td.onrender.com/widget.js" defer&gt;&lt;/script&gt;</code></pre>
+
+  <h2>自訂掛法</h2>
+  <pre><code>&lt;script
+  src="https://classroom-chat-u1td.onrender.com/widget.js"
+  data-nickname="三年二班訪客"
+  data-accent="#3b82f6"
+  data-position="left"
+  defer&gt;&lt;/script&gt;</code></pre>
+
+  <p>或用 <code class="inline">window.ChatWidget</code> API 動態控制：</p>
+  <pre><code>window.ChatWidget.open()   // 打開
+window.ChatWidget.close()  // 收起
+window.ChatWidget.toggle() // 切換
+window.ChatWidget.config({ accent: '#f97316', nickname: '導覽機器人' })</code></pre>
+
+  <h2>data-* 參數</h2>
+  <table>
+    <tr><th>參數</th><th>預設</th><th>說明</th></tr>
+    <tr><td><code>data-server</code></td><td>widget.js 來源站 <code>/ws</code></td><td>WebSocket 位址（跨網站放置也可指定）</td></tr>
+    <tr><td><code>data-nickname</code></td><td>「訪客」</td><td>預設顯示暱稱（使用者可自行修改，存在瀏覽器）</td></tr>
+    <tr><td><code>data-room</code></td><td>（空）</td><td>指定加入的房間 ID；空值會自動開一間私人「小幫手」房</td></tr>
+    <tr><td><code>data-accent</code></td><td><code>#06c755</code></td><td>主題色</td></tr>
+    <tr><td><code>data-position</code></td><td><code>right</code></td><td>右下角或 <code>left</code> 左下角</td></tr>
+    <tr><td><code>data-greeting</code></td><td>打招呼文案</td><td>開啟時的第一句</td></tr>
+  </table>
+
+  <script src="/widget.js" defer></script>
+</body>
+</html>

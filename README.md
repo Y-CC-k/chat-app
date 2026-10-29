@@ -77,6 +77,20 @@ bot 回覆前會先顯示「正在輸入…」延遲一陣子再回答，效果�
 - **`CHAT_LLM<n>_EXTRA`**（選用）：JSON 字串，整包合併進請求 body。Gemini 思考模型建議設 `{"reasoning_effort":"none"}`，避免 reasoning tokens 吃光回覆長度又拖慢回應。
 - 未設定時走 `server/data/store.json` 罐頭回覆；`.env` 檔支援範例見 `.env.example`。
 
+### 浮動機器人外掛（嵌入任何網頁）💬
+
+在**任何網頁**的 `</body>` 前貼一行 script，右下角就會出現「小幫手」浮動按鈕：
+
+```html
+<script src="https://你的聊天室網址/widget.js" defer></script>
+```
+
+- **零依賴、單檔**：`public/widget.js` 以 Shadow DOM 注入，不影響宿主頁樣式跨網站放置也沒問題（用 `wss` 自動安全連線）。
+- **預設行為**：開啟時自動建立一間私人「小幫手」房並啟用機器人；離開（關閉按鈕）房間自動解散，不留紀錄、不影響大廳。
+- **客製參數**：`data-nickname`（預設顯示暱稱）、`data-accent`（主題色）、`data-position`（right/left）、`data-room`（改連指定房間）、`data-greeting`（開場白）。
+- **API**：`window.ChatWidget.open() / close() / toggle() / config({ accent, nickname, ... })`。
+- 完整參數表與示範：部署後打開 `https://你的聊天室網址/widget-demo.html`。
+
 ## 機器人「英文助教」🇺🇸
 
 中文翻英文並**自動朗讀**，翻譯走 Google 翻譯公共端點（不需 API 金鑰，需要對外網路）。
@@ -148,6 +162,8 @@ chat-app/
 ├─ server/llm.ts       # LLM 智慧答詢：多路由輪替備援（OpenAI 相容端點；全失敗時退回）
 ├─ server/tts.ts         # AI 語音（Edge 神經語音，msedge-tts）
 ├─ server/db.ts          # Supabase 持久化（rooms/messages/faqs；未設定時退回 JSON）
+├─ public/widget.js      # 浮動機器人外掛（其他網頁一行 script 嵌入；Shadow DOM）
+├─ public/widget-demo.html # 外掛示範頁
 ├─ server/smoke.mjs      # 端對端煙霧測試
 ├─ server/expiry-test.mjs # 聊天室逾時解散測試（配合 CHAT_ROOM_LIFETIME_MS）
 └─ src/
