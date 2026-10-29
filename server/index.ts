@@ -22,6 +22,8 @@ import {
   MAX_ROOM_NAME_LENGTH,
   MAX_TEXT_LENGTH,
   ROOM_LIFETIME_MS,
+  MESSAGE_RETENTION_MS,
+  MESSAGE_VISIBILITY_MS,
   type ChatMessage,
   type ClientMsg,
   type FaqEntry,
@@ -47,6 +49,7 @@ import {
 import { HELPER_SYSTEM_PROMPT, llmChat, loadLlmConfig } from './llm'
 import { synthesize } from './tts'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
+import { loadBlockedWords, maskSensitiveWords } from './moderation'
 
 // ── 型別 ──────────────────────────────────────────────────────────
 
@@ -115,6 +118,17 @@ try {
 
 /** 自建聊天室存活時間（可用環境變數縮短以利測試；正式為 1 小時） */
 const ROOM_LIFETIME = Number(process.env.CHAT_ROOM_LIFETIME_MS) || ROOM_LIFETIME_MS
+
+/** 對話呈現範圍（預設 24 小時）與保留期（預設 14 天） */
+const VISIBILITY_WINDOW = Number(process.env.CHAT_VISIBILITY_MS) || MESSAGE_VISIBILITY_MS
+const RETENTION = Number(process.env.CHAT_RETENTION_MS) || MESSAGE_RETENTION_MS
+const BLOCKED_WORDS = loadBlockedWords()
+
+/** 呈現用的訊息：只取最近一段時間（預設 24 小時）內的 */
+function displayMessages(room: Room): ChatMessage[] {
+  const since = Date.now() - VISIBILITY_WINDOW
+  return room.messages.filter((m) => m.ts >= since)
+}
 
 function pickColor(userId: string): string {
   let hash = 0
@@ -299,10 +313,14 @@ function closeRoom(room: Room, reason: string): void {
   scheduleSave()
 }
 
-/** 定時清掃：逾時或 0 人的自建聊天室自動消失 */
+/** 定時清掃：逾時或 0 人的自建聊天室自動消失；訊息超過保留期（14 天）的剪掉 */
 function sweepRooms(): void {
   const now = Date.now()
+  const retentionCutoff = now - RETENTION
   for (const room of [...rooms.values()]) {
+    // 保留期外的舊訊息從記憶體剪掉（Supabase 有定時清掃）
+    const freshness = room.messages.filter((m) => m.ts >= retentionCutoff)
+    if (freshness.length !== room.messages.length) room.messages = freshness
     if (room.id === LOBBY_ID) continue
     if (room.members.size === 0) {
       rooms.delete(room.id)
@@ -313,6 +331,16 @@ function sweepRooms(): void {
       closeRoom(room, `聊天室時間到（存活 ${Math.round(ROOM_LIFETIME / 60000)} 分鐘），已自動解散`)
     }
   }
+}
+
+/** 定時清除 Supabase 裡超過保留期（14 天）的訊息 */
+function scheduleSupabasePurge(): void {
+  if (!db) return
+  const flush = () => {
+    void db.purgeOldMessages()
+  }
+  flush()
+  setInterval(flush, 6 * 60 * 60 * 1000).unref()
 }
 
 // ── LLM 設定 ──────────────────────────────────────────────────────
@@ -402,6 +430,8 @@ const HELPER: BotPersona = { id: BOT_USER_ID, name: BOT_NICKNAME, color: BOT_COL
 const TUTOR: BotPersona = { id: BOT_EN_USER_ID, name: BOT_EN_NICKNAME, color: BOT_EN_COLOR }
 
 function botMessage(roomId: string, text: string, persona: BotPersona = HELPER, ts = Date.now()): ChatMessage {
+  // bot／LLM 產出的文字同樣過敏感詞，避免回嘴內容破功
+  const cleaned = maskSensitiveWords(text, BLOCKED_WORDS)
   return {
     id: crypto.randomUUID(),
     roomId,
@@ -409,7 +439,7 @@ function botMessage(roomId: string, text: string, persona: BotPersona = HELPER, 
     senderId: persona.id,
     senderName: persona.name,
     color: persona.color,
-    text,
+    text: cleaned.text,
     ts,
   }
 }
@@ -611,7 +641,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
   }
 
   if (msg.type === 'room:create') {
-    const name = sanitizeText(msg.name, MAX_ROOM_NAME_LENGTH)
+    const name = maskSensitiveWords(sanitizeText(msg.name, MAX_ROOM_NAME_LENGTH), BLOCKED_WORDS).text
     if (!name) {
       send(conn, { type: 'error', message: '請輸入房間名稱' })
       return
@@ -640,7 +670,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     rooms.set(room.id, room)
     void persistRoom(room)
     joinRoom(conn, room, false)
-    send(conn, { type: 'joined', roomId: room.id, messages: room.messages })
+    send(conn, { type: 'joined', roomId: room.id, messages: displayMessages(room) })
     postSystemMessage(room, `${conn.nickname} 建立了「${room.name}」（存活 ${Math.round(ROOM_LIFETIME / 60000)} 分鐘，沒有人時會立即解散）`)
     return
   }
@@ -652,7 +682,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       return
     }
     joinRoom(conn, room)
-    send(conn, { type: 'joined', roomId: room.id, messages: room.messages })
+    send(conn, { type: 'joined', roomId: room.id, messages: displayMessages(room) })
     return
   }
 
@@ -668,8 +698,12 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       send(conn, { type: 'error', message: '你不在這個房間' })
       return
     }
-    const text = sanitizeText(msg.text, MAX_TEXT_LENGTH)
+    const cleaned = maskSensitiveWords(sanitizeText(msg.text, MAX_TEXT_LENGTH), BLOCKED_WORDS)
+    const text = cleaned.text
     if (!text) return
+    if (cleaned.masked > 0) {
+      botReplyPrivate(conn, room.id, '⚠️ 你的訊息包含的部分文字不適合在聊天室出現，已自動遮蔽。請注意用語喔！')
+    }
 
     // 斜線指令：只讓 bot 私下回覆，不對其他人廣播
     const command = parseCommand(text)
@@ -947,6 +981,7 @@ async function setupAndStart(): Promise<void> {
   }
 
   sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間
+  scheduleSupabasePurge() // Supabase：啟動時與每 6 小時清掉 14 天前的舊訊息
   httpServer.listen(PORT, () => {
     console.log(`[chat] 聊天伺服器啟動於 ws://localhost:${PORT}/ws`)
   })

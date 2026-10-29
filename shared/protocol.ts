@@ -81,6 +81,12 @@ export const ROOM_LIFETIME_MS = 60 * 60 * 1000
 /** 每位使用者可同時建立的聊天室數量（大廳不算） */
 export const MAX_ROOMS_PER_USER = 1
 
+/** 對話紀錄保留時間：14 天（超過的訊息定時從 Supabase 清掉） */
+export const MESSAGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000
+
+/** 對話呈現範圍：只顯示最近 24 小時內的訊息 */
+export const MESSAGE_VISIBILITY_MS = 24 * 60 * 60 * 1000
+
 /** 使用者頭像預設色票 */
 export const AVATAR_COLORS = [
   '#06c755',

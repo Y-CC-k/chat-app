@@ -2,7 +2,7 @@
 // 未設定 SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY 時回傳 null，上層退回 JSON 檔儲存。
 
 import type { ChatMessage, FaqEntry } from '../shared/protocol'
-import { MAX_MESSAGES_PER_ROOM } from '../shared/protocol'
+import { MAX_MESSAGES_PER_ROOM, MESSAGE_RETENTION_MS, MESSAGE_VISIBILITY_MS } from '../shared/protocol'
 
 export interface SupabaseConfig {
   url: string
@@ -106,15 +106,17 @@ class SupabaseStore {
     }
   }
 
-  /** 從 Supabase 讀取初始狀態（房間、每房的訊息尾端、FAQ） */
+  /** 從 Supabase 讀取初始狀態（房間、每房的訊息尾端、FAQ；訊息只載最近 24 小時） */
   async loadState(): Promise<{ rooms: ChatRoomState[]; faqs: FaqEntry[] } | null> {
     const roomRows = await this.rest<DbRoomRow[]>('GET', 'chat_rooms?select=*')
     if (!roomRows) return null
+    // 只取顯示範圍內（最近 24 小時）且未逾保留期（14 天）的訊息
+    const since = Date.now() - MESSAGE_VISIBILITY_MS
     const messageRows =
       (await this.rest<DbMessageRow[]>(
         `GET`,
         // 只取每間房最新的訊息即可：全撈再依房切尾
-        `chat_messages?select=*&order=ts.asc&limit=${MAX_MESSAGES_PER_ROOM * 100}`,
+        `chat_messages?select=*&order=ts.asc&ts=gte.${since}&limit=${MAX_MESSAGES_PER_ROOM * 100}`,
       )) ?? []
     const faqRows = await this.rest<Array<{ keyword: string; answer: string }>>('GET', 'chat_faqs?select=*')
 
@@ -167,6 +169,12 @@ class SupabaseStore {
   /** 新增一則訊息（含系統訊息；id 重複時合併寫入，具幂等性） */
   async insertMessage(message: ChatMessage): Promise<void> {
     await this.rest('POST', 'chat_messages', [messageToRow(message)])
+  }
+
+  /** 清除逾期的舊訊息（保留期 14 天） */
+  async purgeOldMessages(): Promise<void> {
+    const before = Date.now() - MESSAGE_RETENTION_MS
+    await this.rest('DELETE', `chat_messages?ts=lt.${before}`)
   }
 
   /** 儲存一條 FAQ（/教） */

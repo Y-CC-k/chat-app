@@ -15,6 +15,8 @@
 - 🔁 斷線自動重連（指數退避）
 - ☁️ 對話歷史可存 **Supabase**（各聊天室的完整對話流程、房間、FAQ；未設定時存 JSON 檔）
 - 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失；無 Supabase 時）
+- 🛡️ 敏感詞自動遮蔽（伺服器端統一過濾，學生輸入與 bot／LLM 回覆都會檢查）
+- 🕐 對話紀錄政策：畫面只顯示最近 **24 小時**；資料保留 **14 天** 後自動清除
 - 🤖 機器人「小幫手」自動答詢，可接 LLM API 真智慧答詢（見下方說明）
 - 🇺🇸 機器人「英文助教」：中文↔英文翻譯 + AI 語音朗讀（見下方說明）
 
@@ -161,6 +163,9 @@ chat-app/
 | `CHAT_ROOM_LIFETIME_MS`    | 3600000    | 自建聊天室存活毫秒數（1 小時）              |
 | `SUPABASE_URL`             | （未設定） | Supabase 專案網址；與下方 key 同設才啟用雲端儲存 |
 | `SUPABASE_SERVICE_ROLE_KEY`| （未設定） | Supabase service key（伺服器專用，勿外洩）  |
+| `CHAT_BLOCKED_WORDS`       | （內建清單） | 追加敏感詞（逗號分隔；內建見 `server/moderation.ts`） |
+| `CHAT_VISIBILITY_MS`       | 86400000   | 對話呈現範圍毫秒數（畫面只顯示最近 24 小時） |
+| `CHAT_RETENTION_MS`        | 1209600000 | 對話保留期毫秒數（14 天，逾時自動清除）      |
 
 支援 `.env` 檔（零相依注入；範例見 `.env.example`），正式環境變數優先於 `.env`。
 
