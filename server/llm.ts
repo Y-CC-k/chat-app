@@ -6,6 +6,8 @@ export interface LlmConfig {
   baseUrl: string
   apiKey: string
   model: string
+  /** 額外合併進請求 body 的參數（例如 Gemini 的 reasoning_effort） */
+  extra?: Record<string, unknown>
 }
 
 interface LlmMessage {
@@ -13,18 +15,46 @@ interface LlmMessage {
   content: string
 }
 
-/** 從環境變數讀取設定；三個都齊才視為已啟用 */
-export function loadLlmConfig(): LlmConfig | null {
-  const baseUrl = (process.env.CHAT_LLM_BASE_URL ?? '').trim()
-  const model = (process.env.CHAT_LLM_MODEL ?? '').trim()
-  const apiKey = (process.env.CHAT_LLM_API_KEY ?? '').trim() || 'ollama'
+/** 從環境變數讀取一組設定；齊全（baseUrl+model）才回傳 */
+function readRoute(prefix: string): LlmConfig | null {
+  const baseUrl = (process.env[`${prefix}_BASE_URL`] ?? '').trim()
+  const model = (process.env[`${prefix}_MODEL`] ?? '').trim()
+  const apiKey = (process.env[`${prefix}_API_KEY`] ?? '').trim() || 'ollama'
   if (!baseUrl || !model) return null
+  // CHAT_LLM2_EXTRA 之類：JSON 字串，會整包合併進 chat/completions 的 body
+  let extra: Record<string, unknown> | undefined
+  const rawExtra = (process.env[`${prefix}_EXTRA`] ?? '').trim()
+  if (rawExtra) {
+    try {
+      extra = JSON.parse(rawExtra) as Record<string, unknown>
+    } catch {
+      console.error(`[chat] ${prefix}_EXTRA 不是合法 JSON，已忽略`)
+    }
+  }
   return {
     // 去掉結尾斜線
     baseUrl: baseUrl.replace(/\/+$/, ''),
     model,
     apiKey,
+    extra,
   }
+}
+
+/**
+ * 從環境變數讀取 LLM 路由鏈：
+ *   CHAT_LLM_*        （主路由）
+ *   CHAT_LLM2_*       （備援 1）
+ *   CHAT_LLM3_*、CHAT_LLM4_*（依此類推）
+ * 前一個 provider 限流／失敗時自動改試下一個。
+ */
+export function loadLlmConfig(): LlmConfig[] {
+  const chain: LlmConfig[] = []
+  const prefixes = ['CHAT_LLM', 'CHAT_LLM2', 'CHAT_LLM3', 'CHAT_LLM4']
+  for (const prefix of prefixes) {
+    const route = readRoute(prefix)
+    if (route) chain.push(route)
+  }
+  return chain
 }
 
 export const HELPER_SYSTEM_PROMPT = [
@@ -55,6 +85,7 @@ export async function llmChat(
         messages,
         max_tokens: maxTokens,
         temperature: 0.7,
+        ...config.extra,
       }),
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     })
@@ -67,4 +98,23 @@ export async function llmChat(
   } catch {
     return null
   }
+}
+
+/**
+ * 多路由輪替：依序嘗試設定中的每個 provider，一家失敗（限流／逾時／空回覆）就換下一家；
+ * 全部失敗才回 null（上層退回罐頭回覆）。
+ */
+export async function llmChatChain(
+  chain: LlmConfig[],
+  messages: LlmMessage[],
+  maxTokens = 500,
+): Promise<string | null> {
+  const failures: string[] = []
+  for (const config of chain) {
+    const reply = await llmChat(config, messages, maxTokens)
+    if (reply !== null) return reply
+    failures.push(config.model)
+  }
+  if (chain.length > 1) console.error('[chat] 全部 LLM 路由失敗:', failures.join(' → '))
+  return null
 }

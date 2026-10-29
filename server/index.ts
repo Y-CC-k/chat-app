@@ -46,7 +46,7 @@ import {
   isMostlyChinese,
   type Command,
 } from './bot'
-import { HELPER_SYSTEM_PROMPT, llmChat, loadLlmConfig } from './llm'
+import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
 import { synthesize } from './tts'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 import { loadBlockedWords, maskSensitiveWords } from './moderation'
@@ -346,7 +346,7 @@ function scheduleSupabasePurge(): void {
 // ── LLM 設定 ──────────────────────────────────────────────────────
 
 const LLM = loadLlmConfig()
-if (LLM) console.log(`[chat] LLM 已啟用: ${LLM.model} @ ${LLM.baseUrl}`)
+if (LLM.length > 0) console.log(`[chat] LLM 已啟用（${LLM.length} 條路由）: ` + LLM.map((c) => c.model).join(' → '))
 else console.log('[chat] LLM 未設定（CHAT_LLM_* 環境變數），使用內建回覆')
 
 function broadcast(userIds: Iterable<string>, msg: ServerMsg, exceptUserId?: string): void {
@@ -502,7 +502,7 @@ async function helperSmartReply(room: Room, question: boolean): Promise<void> {
     }
   }
   botTyping(room, HELPER, true)
-  const answer = LLM ? await llmChat(LLM, [{ role: 'system', content: HELPER_SYSTEM_PROMPT }, ...context]) : null
+  const answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: HELPER_SYSTEM_PROMPT }, ...context]) : null
   botTyping(room, HELPER, false)
   if (answer) {
     botDeliver(room, answer)

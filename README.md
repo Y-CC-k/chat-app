@@ -17,7 +17,7 @@
 - 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失；無 Supabase 時）
 - 🛡️ 敏感詞自動遮蔽（伺服器端統一過濾，學生輸入與 bot／LLM 回覆都會檢查）
 - 🕐 對話紀錄政策：畫面只顯示最近 **24 小時**；資料保留 **14 天** 後自動清除
-- 🤖 機器人「小幫手」自動答詢，可接 LLM API 真智慧答詢（見下方說明）
+- 🤖 機器人「小幫手」自動答詢，可接多個 LLM 服務輪替備援（限流自動換下一家；見下方說明）
 - 🇺🇸 機器人「英文助教」：中文↔英文翻譯 + AI 語音朗讀（見下方說明）
 
 ## 聊天室生命週期 ⏳
@@ -157,9 +157,10 @@ chat-app/
 | 環境變數                   | 預設       | 說明                                      |
 | -------------------------- | ---------- | ----------------------------------------- |
 | `CHAT_PORT` / `PORT`       | 4001       | 後端監聽埠（雲端平台通常注入 `PORT`）      |
-| `CHAT_LLM_BASE_URL`        | （未設定） | LLM 端點（OpenAI / LM Studio / Ollama）    |
-| `CHAT_LLM_MODEL`           | （未設定） | LLM 模型名稱；兩者都設定才啟用 LLM 答詢     |
-| `CHAT_LLM_API_KEY`         | `ollama`   | LLM 金鑰                                   |
+| `CHAT_LLM_BASE_URL`        | （未設定） | LLM 主路由（OpenAI / Gemini / Groq / LM Studio …） |
+| `CHAT_LLM_MODEL`           | （未設定） | LLM 模型名稱；與 BASE_URL 同設才啟用               |
+| `CHAT_LLM_API_KEY`         | `ollama`   | LLM 金鑰                                           |
+| `CHAT_LLM2_*` / `CHAT_LLM3_*` / `CHAT_LLM4_*` | （未設定） | 備援路由（同欄位成組）；主路由限流時依序自動轉換 |
 | `CHAT_ROOM_LIFETIME_MS`    | 3600000    | 自建聊天室存活毫秒數（1 小時）              |
 | `SUPABASE_URL`             | （未設定） | Supabase 專案網址；與下方 key 同設才啟用雲端儲存 |
 | `SUPABASE_SERVICE_ROLE_KEY`| （未設定） | Supabase service key（伺服器專用，勿外洩）  |
