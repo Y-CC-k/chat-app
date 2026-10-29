@@ -1,0 +1,168 @@
+# 線上聊天室（chat-app）
+
+類似 LINE 的線上聊天室，使用 **Vite + React + TypeScript（前端）** 與 **Node.js + ws（WebSocket 後端）** 開發。
+
+## 功能
+
+- 🀄 暱稱登入 + 自選頭像顏色
+- 🉐 大廳（內建、永久）+ 自由建立／加入／退出聊天室
+- ⏳ 自建聊天室生命週期：**每人限建 1 間、存活 1 小時、沒有人時立即解散**
+- 💬 LINE 風格對話泡泡（自己綠色靠右、他人白色靠左）、頭像、時間
+- 📅 日期分隔、加入／離開系統提示
+- 🔔 側欄未讀徽章與最新訊息預覽
+- ⌨️ 「正在輸入」提示（發送端節流、自動過期）
+- 😊 表情符號面板、Enter 送出 / Shift+Enter 換行
+- 🔁 斷線自動重連（指數退避）
+- 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失）
+- 🤖 機器人「小幫手」自動答詢，可接 LLM API 真智慧答詢（見下方說明）
+- 🇺🇸 機器人「英文助教」：中文↔英文翻譯 + AI 語音朗讀（見下方說明）
+
+## 聊天室生命週期 ⏳
+
+| 規則                     | 說明                                                       |
+| ------------------------ | ---------------------------------------------------------- |
+| 每人限建 **1 間**        | 同一暱稱已擁有自建聊天室時，再次建立會被拒絕（以暱稱判定，重連也有效） |
+| 存活 **1 小時**          | 建立一小時後自動解散；解散前會在房內通知並自動帶成員回大廳     |
+| **沒有人就消失**         | 最後一位成員離開的瞬間，聊天室立即從清單移除                   |
+| 大廳                     | 永久存在，不受上述規則影響                                   |
+
+逾時時間可用環境變數 `CHAT_ROOM_LIFETIME_MS` 調整（毫秒）。
+
+## 機器人「小幫手」🤖
+
+聊天室標頭有「🤖 機器人開／關」按鈕（大廳預設開、新建房間預設關）。
+
+| 觸發方式                               | 行為                             |
+| -------------------------------------- | -------------------------------- |
+| 訊息中包含「**小幫手**」                | 一定會回覆（打招呼／解答）       |
+| 開啟時訊息**命中自訂 FAQ 關鍵字**        | 自動回答該條 FAQ                 |
+| `斜線指令`                              | 只有自己看得到指令，結果依性質公開或私回 |
+
+### 指令
+
+| 指令               | 說明                     | 回覆範圍 |
+| ------------------ | ------------------------ | -------- |
+| `/說明`            | 指令總覽                 | 私回     |
+| `/時間`            | 現在時間                 | 公開     |
+| `/成員`            | 房間成員清單             | 公開     |
+| `/骰子`            | 擲骰子 1–100             | 公開     |
+| `/笑話`            | 隨機笑話                 | 公開     |
+| `/教 關鍵字=回答`  | 教機器人自動回答（FAQ）  | 私回確認 |
+| `/忘 關鍵字`       | 刪除一條 FAQ             | 私回確認 |
+| `/清單`            | 列出目前學會的 FAQ       | 私回     |
+
+FAQ 會保存在 `server/data/store.json`，重啟不會忘記。
+bot 回覆前會先顯示「正在輸入…」延遲一陣子再回答，效果自然。
+
+### 智慧答詢：接 LLM API（選用）
+
+設定環境變數 `CHAT_LLM_BASE_URL` + `CHAT_LLM_MODEL` 後，「小幫手」被點名時會改用 **OpenAI 相容端點**（`chat/completions`）回答，並帶入最近 14 則對話上下文：
+
+| 服務      | `CHAT_LLM_BASE_URL`                | 備註                        |
+| --------- | ---------------------------------- | --------------------------- |
+| OpenAI    | `https://api.openai.com/v1`        | `CHAT_LLM_API_KEY` 需使用真實金鑰 |
+| LM Studio | `http://localhost:1234/v1`         | 本機免費                     |
+| Ollama    | `http://localhost:11434/v1`        | API Key 可填任意值（預設 `ollama`） |
+
+- 模型名稱由 `CHAT_LLM_MODEL` 指定（例如 `gpt-4o-mini`、`qwen2.5:7b`）。
+- 未設定或呼叫失敗時，**自動退回內建罐頭回覆**，聊天室功能不受影響。
+- `.env` 支援：在專案根目錄放 `.env`（範例見 `.env.example`），伺服器啟動時自動載入；正式環境變數優先。
+
+## 機器人「英文助教」🇺🇸
+
+中文翻英文並**自動朗讀**，翻譯走 Google 翻譯公共端點（不需 API 金鑰，需要對外網路）。
+
+| 使用方式                             | 效果                                           |
+| ------------------------------------ | ---------------------------------------------- |
+| 訊息中說「**英文助教** ＋想翻的內容」 | 中文 → 英文，並用英語音調唸出來                 |
+| `/翻譯 內容`                          | 同上（英文內容則翻回中文）                     |
+| 點標頭「**🇺🇸 英文教室**」按鈕         | 進入教室模式：之後傳的每則訊息自動翻譯+朗讀，不想用再點一次離開 |
+
+- **AI 語音**：伺服器以 [msedge-tts](https://www.npmjs.com/package/msedge-tts)（Edge「朗讀」神經語音 API，**不需金鑰**）產生自然發音 mp3 廣播給房間——英文用 `en-US-AvaNeural`、中文用 `zh-TW-HsiaoChenNeural`；自動播放失敗時退回瀏覽器內建 Web Speech API。
+- 標頭「🔊 朗讀開／關」可全域開關自動朗讀（設定記在 localStorage）。
+- 英文助教的英文訊息旁有 🔊 按鈕，點一下可重聽（優先播放伺服器 AI 語音）。
+- 翻譯方向自動判斷：中文為主 → 翻成英文；英文為主 → 翻回中文。
+
+## 使用
+
+```bash
+cd chat-app
+npm install
+npm run dev        # 同時啟動後端 (4001) 與前端 (5199)
+```
+
+打開 http://localhost:5199，輸入暱稱即可開始聊天。
+
+**正式模式**（單一埠同時提供網頁＋WebSocket）：
+
+```bash
+npm run build && npm start   # 打開 http://localhost:4001
+```
+
+## 部署到雲端（Render 免費方案）
+
+本專案可在 **Render** 的免費方案上執行（支援 WebSocket），步驟：
+
+1. 將 repo 推上 GitHub。
+2. 到 [render.com](https://render.com) 註冊（可用 GitHub 帳號登入）→ **New → Blueprint** → 選取這個 repo，會自動讀取 `render.yaml`。
+3. 按 **Create** 完成部署，得到網址 `https://你的服務名.onrender.com`，同學打開網址即可使用。
+
+注意事項（免費方案）：
+
+- **閒置 15 分鐘會休眠**，下次開啟約需 30–60 秒喚醒（上課時先開網頁點一下即可）。
+- **沒有持久磁碟**：重回部署／重啟後 `server/data/store.json` 的歷史訊息會清空（FAQ 也要重新教）。
+- 512MB RAM、每月 5GB 流量，一個班級的聊天室綽綽有餘。
+- 「小幫手」智慧答詢需要的 `CHAT_LLM_*` 環境變數，在 Render 服務的 **Environment** 分頁設定。
+
+其他免費/低價選項：Railway（試用送 $5 額度 30 天）、Fly.io（按用量計費，約 $2–3/月起）。
+
+## 其他指令
+
+| 指令                 | 說明                                          |
+| -------------------- | --------------------------------------------- |
+| `npm run dev:server` | 只跑後端（tsx watch）                         |
+| `npm run dev:client` | 只跑前端（Vite）                              |
+| `npm start`          | 正式模式：單埠服務網頁＋WebSocket（需先 build） |
+| `npm run smoke`      | 煙霧測試（需後端執行中）                       |
+| `npm run typecheck`  | TypeScript 型別檢查                           |
+| `npm run build`      | 前端正式建置                                  |
+
+## 架構
+
+```
+chat-app/
+├─ .env.example          # 環境變數範例（LLM／埠／聊天室壽命）
+├─ shared/protocol.ts    # 前後端共用的 WebSocket 傳輸協定型別
+├─ server/index.ts       # WebSocket 伺服器：房間（生命週期）、成員、廣播、心跳、持久化
+├─ server/bot.ts         # 機器人：小幫手（FAQ）＋英文助教（翻譯）
+├─ server/llm.ts         # LLM 智慧答詢（OpenAI 相容端點；未設定時優雅退回）
+├─ server/tts.ts         # AI 語音（Edge 神經語音，msedge-tts）
+├─ server/smoke.mjs      # 端對端煙霧測試
+├─ server/expiry-test.mjs # 聊天室逾時解散測試（配合 CHAT_ROOM_LIFETIME_MS）
+└─ src/
+   ├─ hooks/useChat.ts   # 連線狀態機、rooms/messages/unread/typing/音訊快取、重連
+   ├─ components/        # LoginScreen / Sidebar / ChatWindow / MessageList / Composer / NewRoomModal
+   ├─ utils/speech.ts    # 語音播放改良（AI 語音轉址 + Web Speech API 備援）
+   └─ styles.css         # LINE 風格樣式（品牌綠 #06c755）
+```
+
+前端一律以同源 `ws(s)://<host>/ws` 連線；開發時由 Vite proxy 轉發到 `ws://localhost:4001`。
+
+## 設定
+
+| 環境變數                   | 預設       | 說明                                      |
+| -------------------------- | ---------- | ----------------------------------------- |
+| `CHAT_PORT` / `PORT`       | 4001       | 後端監聽埠（雲端平台通常注入 `PORT`）      |
+| `CHAT_LLM_BASE_URL`        | （未設定） | LLM 端點（OpenAI / LM Studio / Ollama）    |
+| `CHAT_LLM_MODEL`           | （未設定） | LLM 模型名稱；兩者都設定才啟用 LLM 答詢     |
+| `CHAT_LLM_API_KEY`         | `ollama`   | LLM 金鑰                                   |
+| `CHAT_ROOM_LIFETIME_MS`    | 3600000    | 自建聊天室存活毫秒數（1 小時）              |
+
+支援 `.env` 檔（零相依注入；範例見 `.env.example`），正式環境變數優先於 `.env`。
+
+## 訊息協定（摘錄）
+
+- Client → Server：`hello`、`chat`、`typing`、`room:create`、`room:join`、`room:leave`、`bot`、`tutor`
+- Server → Client：`welcome`、`rooms`、`joined`、`chat`、`typing`、`audio`、`room:closed`、`error`
+
+詳細型別見 `shared/protocol.ts`。

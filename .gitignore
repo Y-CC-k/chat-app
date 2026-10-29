@@ -1,0 +1,14 @@
+# 依賴與建置產物
+node_modules/
+dist/
+
+# 執行期資料（訊息歷史／FAQ；正式部署時由前線伺服器生成）
+server/data/
+
+# 機密設定（.env.example 是範本，可以提交）
+.env
+
+# 作業系統／編輯器
+Thumbs.db
+.DS_Store
+.tmp*/
