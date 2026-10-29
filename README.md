@@ -87,7 +87,7 @@ bot 回覆前會先顯示「正在輸入…」延遲一陣子再回答，效果�
 
 - **零依賴、單檔**：`public/widget.js` 以 Shadow DOM 注入，不影響宿主頁樣式跨網站放置也沒問題（用 `wss` 自動安全連線）。
 - **預設行為**：開啟時自動建立一間私人「小幫手」房並啟用機器人；離開（關閉按鈕）房間自動解散，不留紀錄、不影響大廳。
-- **客製參數**：`data-nickname`（預設顯示暱稱）、`data-accent`（主題色）、`data-position`（right/left）、`data-room`（改連指定房間）、`data-greeting`（開場白）。
+- **客製參數**：`data-nickname`（預設顯示暱稱）、`data-accent`（主題色）、`data-position`（right/left）、`data-image`（**按鈕用圖片**，例如校徽；標頭頭像也會跟著換）、`data-room`（改連指定房間）、`data-greeting`（開場白）。
 - **API**：`window.ChatWidget.open() / close() / toggle() / config({ accent, nickname, ... })`。
 - 完整參數表與示範：部署後打開 `https://你的聊天室網址/widget-demo.html`。
 

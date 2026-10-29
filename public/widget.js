@@ -44,6 +44,7 @@
     bot: String(dataAttrs.bot || globalCfg.bot || '小幫手'),
     accent: String(dataAttrs.accent || globalCfg.accent || '#06c755'),
     position: String(dataAttrs.position || globalCfg.position || 'right'),
+    image: String(dataAttrs.image || globalCfg.image || ''),
     title: String(dataAttrs.title || globalCfg.title || '小幫手'),
     greeting: String(
       dataAttrs.greeting || globalCfg.greeting ||
@@ -72,8 +73,10 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   box-shadow: 0 4px 18px rgba(0,0,0,.25); z-index: 2147483001;
   display: flex; align-items: center; justify-content: center;
   transition: transform .15s;
+  overflow: hidden; padding: 0;
 }
 .fab:hover { transform: scale(1.06); }
+.fab > img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; background: #fff; }
 .badge {
   position: absolute; top: -4px; right: -4px; background: #ef4444; color: #fff;
   min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
@@ -142,15 +145,45 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   const styleTag = el('style')
   styleTag.textContent = CSS
 
-  const fab = el('button', 'fab')
-  fab.setAttribute('aria-label', '打開小幫手')
-  fab.textContent = '💬'
+  // FAB／標頭頭像的內容：有 data-image 用圖片，否則用 emoji
   const badge = el('span', 'badge')
-  fab.appendChild(badge)
+  function fabContent(closed) {
+    fab.textContent = ''
+    if (cfg.image) {
+      const img = document.createElement('img')
+      img.src = cfg.image
+      img.alt = '打開小幫手'
+      img.loading = 'eager'
+      img.onerror = function () {
+        fab.textContent = closed ? '💬' : '✕'
+      }
+      fab.appendChild(img)
+      if (!closed) {
+        // 打開狀態：圖上疊一個半透明 ✕ 表示可收回
+        const over = el('span', 'fab-x', '✕')
+        over.style.cssText =
+          'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
+          'background:rgba(0,0,0,.55);color:#fff;font-size:22px;border-radius:50%;z-index:1'
+        fab.appendChild(over)
+      }
+    } else {
+      fab.textContent = closed ? '💬' : '✕'
+    }
+    fab.appendChild(badge)
+  }
+  fab.setAttribute('aria-label', '打開小幫手')
+  fabContent(true)
 
   const panel = el('div', 'panel')
   const head = el('div', 'head')
-  const avatar = el('div', 'avatar', '🤖')
+  const avatar = el('div', 'avatar', cfg.image ? '' : '🤖')
+  if (cfg.image) {
+    const aimg = document.createElement('img')
+    aimg.src = cfg.image
+    aimg.alt = ''
+    aimg.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;background:#fff'
+    avatar.appendChild(aimg)
+  }
   const titleBox = el('div')
   titleBox.appendChild(el('div', 'title', cfg.title))
   const sub = el('div', 'sub', '線上客服 · 隨時回答')
@@ -350,7 +383,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
       unread = 0
       badge.style.display = 'none'
       panel.classList.add('open')
-      fab.textContent = '✕'
+      fabContent(false)
       if (state === 'idle' || state === 'failed') connect()
       else if (ws && ws.readyState === 1 && !myRoomId) startRoom()
       input.focus()
@@ -358,7 +391,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
     close() {
       openedManually = false
       panel.classList.remove('open')
-      fab.textContent = '💬'
+      fabContent(true)
       disconnect()
     },
     toggle() {
