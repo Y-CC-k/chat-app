@@ -57,19 +57,25 @@
 FAQ 會保存在 `server/data/store.json`，重啟不會忘記。
 bot 回覆前會先顯示「正在輸入…」延遲一陣子再回答，效果自然。
 
-### 智慧答詢：接 LLM API（選用）
+### 智慧答詢：接 LLM API（選用，支援多路由備援）
 
-設定環境變數 `CHAT_LLM_BASE_URL` + `CHAT_LLM_MODEL` 後，「小幫手」被點名時會改用 **OpenAI 相容端點**（`chat/completions`）回答，並帶入最近 14 則對話上下文：
+設定 `CHAT_LLM_BASE_URL` + `CHAT_LLM_MODEL` 後，「小幫手」被點名時會改用 **OpenAI 相容端點**（`chat/completions`）回答，並帶入最近對話上下文。
 
-| 服務      | `CHAT_LLM_BASE_URL`                | 備註                        |
-| --------- | ---------------------------------- | --------------------------- |
-| OpenAI    | `https://api.openai.com/v1`        | `CHAT_LLM_API_KEY` 需使用真實金鑰 |
-| LM Studio | `http://localhost:1234/v1`         | 本機免費                     |
-| Ollama    | `http://localhost:11434/v1`        | API Key 可填任意值（預設 `ollama`） |
+**多路由備援**：把第二、三、四家服務填進成組的 `CHAT_LLM2_*` ／ `CHAT_LLM3_*` ／ `CHAT_LLM4_*`（一組 = `*_BASE_URL` + `*_MODEL` + `*_API_KEY`）。呼叫時依序嘗試，**一家限流／逾時／失敗就自動換下一家**，全部失敗才退回內建罐頭回覆 — 線上服務永遠答得出話。
 
-- 模型名稱由 `CHAT_LLM_MODEL` 指定（例如 `gpt-4o-mini`、`qwen2.5:7b`）。
-- 未設定或呼叫失敗時，**自動退回內建罐頭回覆**，聊天室功能不受影響。
-- `.env` 支援：在專案根目錄放 `.env`（範例見 `.env.example`），伺服器啟動時自動載入；正式環境變數優先。
+本專案線上環境的四層配置：
+
+| 路由 | 服務 | `*_BASE_URL` | 取得 key |
+| --- | --- | --- | --- |
+| `CHAT_LLM_*`     | OpenRouter（自動路由免費模型） | `https://openrouter.ai/api/v1` | https://openrouter.ai/settings/keys |
+| `CHAT_LLM2_*`    | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | https://aistudio.google.com/apikey |
+| `CHAT_LLM3_*`    | Groq | `https://api.groq.com/openai/v1` | https://console.groq.com/keys |
+| `CHAT_LLM4_*`    | Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/<AccountID>/ai/v1` | https://dash.cloudflare.com/profile/api-tokens（用 Workers AI 模板） |
+
+- **本機（零成本）**：`CHAT_LLM_BASE_URL=http://localhost:11434/v1`（Ollama，key 填 `ollama`）或 `http://localhost:1234/v1`（LM Studio）。
+- 範例模型名：`openrouter/free`、`gemini-3.5-flash`、`qwen/qwen3.8-27b`、`@cf/meta/llama-3.3-70b-instruct-fp8-fast`。
+- **`CHAT_LLM<n>_EXTRA`**（選用）：JSON 字串，整包合併進請求 body。Gemini 思考模型建議設 `{"reasoning_effort":"none"}`，避免 reasoning tokens 吃光回覆長度又拖慢回應。
+- 未設定時走 `server/data/store.json` 罐頭回覆；`.env` 檔支援範例見 `.env.example`。
 
 ## 機器人「英文助教」🇺🇸
 
@@ -138,7 +144,8 @@ chat-app/
 ├─ shared/protocol.ts    # 前後端共用的 WebSocket 傳輸協定型別
 ├─ server/index.ts       # WebSocket 伺服器：房間（生命週期）、成員、廣播、心跳、持久化
 ├─ server/bot.ts         # 機器人：小幫手（FAQ）＋英文助教（翻譯）
-├─ server/llm.ts       # LLM 智慧答詢（OpenAI 相容端點；未設定時優雅退回）
+├─ server/moderation.ts  # 敏感詞自動遮蔽（內建清單 + CHAT_BLOCKED_WORDS 追加）
+├─ server/llm.ts       # LLM 智慧答詢：多路由輪替備援（OpenAI 相容端點；全失敗時退回）
 ├─ server/tts.ts         # AI 語音（Edge 神經語音，msedge-tts）
 ├─ server/db.ts          # Supabase 持久化（rooms/messages/faqs；未設定時退回 JSON）
 ├─ server/smoke.mjs      # 端對端煙霧測試
@@ -161,6 +168,7 @@ chat-app/
 | `CHAT_LLM_MODEL`           | （未設定） | LLM 模型名稱；與 BASE_URL 同設才啟用               |
 | `CHAT_LLM_API_KEY`         | `ollama`   | LLM 金鑰                                           |
 | `CHAT_LLM2_*` / `CHAT_LLM3_*` / `CHAT_LLM4_*` | （未設定） | 備援路由（同欄位成組）；主路由限流時依序自動轉換 |
+| `CHAT_LLM<n>_EXTRA`        | （未設定） | JSON 字串，合併進 LLM 請求 body（Gemini 建議 `{"reasoning_effort":"none"}`） |
 | `CHAT_ROOM_LIFETIME_MS`    | 3600000    | 自建聊天室存活毫秒數（1 小時）              |
 | `SUPABASE_URL`             | （未設定） | Supabase 專案網址；與下方 key 同設才啟用雲端儲存 |
 | `SUPABASE_SERVICE_ROLE_KEY`| （未設定） | Supabase service key（伺服器專用，勿外洩）  |
