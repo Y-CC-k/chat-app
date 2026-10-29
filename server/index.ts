@@ -663,14 +663,14 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       return
     }
     // 限額：每位使用者同時只能擁有 1 間自建聊天室（重連後 userId 會換，改用暱稱判定）
+    // 若舊房還在：一律重新進入那間房（續聊歷史紀錄），避免「重新整理後開不了房卡死」
     const mine = [...rooms.values()].filter(
       (room) => room.ownerId === conn.userId || (room.ownerName !== null && room.ownerName === conn.nickname),
     )
     if (mine.length >= MAX_ROOMS_PER_USER) {
-      send(conn, {
-        type: 'error',
-        message: `每位使用者只能建立 ${MAX_ROOMS_PER_USER} 間聊天室（你已建立「${mine[0].name}」，閒置 1 小時或沒有人時會自動解散）`,
-      })
+      const existing = mine.find((room) => room.ownerId === conn.userId) ?? mine[0]
+      joinRoom(conn, existing)
+      send(conn, { type: 'joined', roomId: existing.id, messages: displayMessages(existing) })
       return
     }
     const room: Room = {
@@ -774,13 +774,17 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     }
 
     // 機器人：被點名必回；開啟時，訊息命中自訂 FAQ 也會自動回答
+    // 私人小幫手房：房內只有房主本人（同暱稱；同一人開多個分頁也算）時，每句都視同點名，保證有回應
     const mention = isBotMention(text)
     const faqHit = matchFaq(text, faqs)
-    if (room.botEnabled || mention) {
+    const memberNicknames = new Set([...room.members.values()].map((m) => m.nickname))
+    const onlyOwnerInside = memberNicknames.size === 1 && memberNicknames.has(room.ownerName ?? '')
+    const privateHelper = room.botEnabled && room.ownerId !== null && onlyOwnerInside
+    if (room.botEnabled || mention || privateHelper) {
       if (faqHit) {
         botReplyPublic(room, faqHit.answer)
         logBotQa(text, faqHit.answer, 'faq', conn.nickname, room.name)
-      } else if (mention) {
+      } else if (mention || privateHelper) {
         // 點名小幫手：智慧答詢（LLM，未設定則罐頭）
         void helperSmartReply(room, text, isQuestion(text), conn.nickname)
       }
@@ -891,7 +895,11 @@ function serveStatic(request: http.IncomingMessage, res: http.ServerResponse): b
   }
   if (!fs.existsSync(filePath)) return false // dist 未建置（本地開發模式）
   const ext = path.extname(filePath).toLowerCase()
-  res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream' })
+  // widget.js 要永不快取——嵌入別人網頁的單檔外掛一更新，訪客重新整理就會拿到新版
+  res.writeHead(200, {
+    'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
+    ...(ext === '.js' ? { 'Cache-Control': 'no-cache' } : {}),
+  })
   if (request.method === 'HEAD') {
     res.end()
   } else {

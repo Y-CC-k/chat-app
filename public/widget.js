@@ -235,7 +235,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   let reconnectTimer = null
   // 暱稱：有 data-nickname → 底名 + 瀏覽器編號（穩定）；沒有則用上次存的或「訪客+編號」
   const VNUID = visitorNumber()
-  let nickname
+  let nickname = savedNickname() || cfg.nickname || '訪客'
   if (cfg.nickname) {
     nickname = cfg.nickname.replace(/-\d{3}$/, '') + '-' + VNUID
     saveNickname(nickname)
@@ -245,6 +245,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   }
   let openedManually = false
   let unread = 0
+  let replyWatchdog = null // 送訊息後 30 秒無回覆的提示計時器
 
   function setState(s, note) {
     state = s
@@ -330,7 +331,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
           helloSent = true
           myUserId = msg.user.userId
           if (!savedNickname() || cfg.nickname) saveNickname(nickname)
-          setState('ready')
+          setState('connecting', '開房中…')
           startRoom()
           return
         }
@@ -342,12 +343,15 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
           }
           resetList()
           for (const m of msg.messages.slice(-30)) addMessage(m)
+          //
+          setState('ready')
           return
         }
         case 'chat': {
           if (msg.message.roomId !== myRoomId) return
           // 隱藏機器人自動答詢的開／關確認訊息（widget 私聊情境不需要）
           if (msg.message.senderName === cfg.bot && msg.message.text.indexOf('自動答詢') >= 0) return
+          clearTimeout(replyWatchdog) // 收到訊息（含自己的同房訊息）即解除「無回覆」提示
           addMessage(msg.message)
           return
         }
@@ -392,6 +396,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
 
   function disconnect() {
     clearTimeout(reconnectTimer)
+    clearTimeout(replyWatchdog)
     if (ws) {
       if (myRoomId) {
         try { ws.send(JSON.stringify({ type: 'room:leave', roomId: myRoomId })) } catch (_) { /* ignore */ }
@@ -406,10 +411,29 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
 
   function sendText() {
     const text = input.value.trim()
-    if (!text || state !== 'ready' || !ws || ws.readyState !== 1) return
-    ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: text.slice(0, MAX_LEN) }))
+    if (!text || state !== 'ready' || !ws || ws.readyState !== 1) {
+      if (text) status.textContent = state === 'connecting' ? '連線中…請等幾秒再送一次' : '連線已斷，再送一次即可重連'
+      return
+    }
+    if (!myRoomId) {
+      status.textContent = '房間還在準備中，1～2 秒後再送一次'
+      return
+    }
+    try {
+      ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: text.slice(0, MAX_LEN) }))
+    } catch (_) {
+      status.textContent = '訊息送不出去，再送一次即可重連'
+      return
+    }
     input.value = ''
     refreshComposer()
+    // 30 秒沒收到任何回覆時給提示（LLM 服務全斷／伺服器休眠時不會音訊全無）
+    clearTimeout(replyWatchdog)
+    replyWatchdog = setTimeout(() => {
+      if (state === 'ready') {
+        status.textContent = '小幫手想了很久還沒回…再送一次試試（若常常如此代表 AI 服務忙碌）'
+      }
+    }, 30000)
   }
 
   input.addEventListener('input', refreshComposer)
