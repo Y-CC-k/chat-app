@@ -11,6 +11,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # 雲端儲存：設定後對話流程存進 Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       # 小幫手智慧答詢（選用）：填入後自動啟用
       # - key: CHAT_LLM_BASE_URL
       #   sync: false

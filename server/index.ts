@@ -46,6 +46,7 @@ import {
 } from './bot'
 import { HELPER_SYSTEM_PROMPT, llmChat, loadLlmConfig } from './llm'
 import { synthesize } from './tts'
+import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 
 // ── 型別 ──────────────────────────────────────────────────────────
 
@@ -132,14 +133,80 @@ function sanitizeText(raw: unknown, maxLength: number): string {
 const connections = new Set<UserConn>()
 const rooms = new Map<string, Room>()
 
+// ── Supabase 持久化（未設定環境變數時退回 JSON 檔） ──────────────
+
+const SUPABASE_CONFIG = loadSupabaseConfig()
+const db = SUPABASE_CONFIG ? createSupabaseStore(SUPABASE_CONFIG) : null
+// 已寫入 Supabase 的房間集合：避免每次插入訊息都重複寫房間列
+const persistedRoomIds = new Set<string>()
+if (db) console.log('[chat] 對話歷史將存入 Supabase')
+else console.log('[chat] Supabase 未設定（SUPABASE_* 環境變數），歷史存 JSON 檔')
+
+/** 房間 → Supabase 列（資料有變動時呼叫；訊息插入前會先確保房間列存在） */
+async function persistRoom(room: Room): Promise<void> {
+  if (!db) return
+  const row: ChatRoomRow = {
+    id: room.id,
+    name: room.name,
+    ownerId: room.ownerId,
+    ownerName: room.ownerName,
+    expiresAt: room.expiresAt,
+    botEnabled: room.botEnabled,
+  }
+  await db.upsertRoom(row)
+  persistedRoomIds.add(room.id)
+}
+
+/** 單則訊息寫入 Supabase（fire-and-forget；房間列不存在時先補寫） */
+function persistMessage(message: ChatMessage): void {
+  if (!db) return
+  const room = rooms.get(message.roomId)
+  const ensureRoom = room && !persistedRoomIds.has(message.roomId) ? persistRoom(room) : Promise.resolve()
+  void ensureRoom.then(() => db.insertMessage(message)).catch((error) => {
+    console.error('[chat] 訊息存入 Supabase 失敗', error instanceof Error ? error.message : error)
+  })
+}
+
+/** 房間資料有變動（例如機器人開關）時更新 Supabase */
+async function persistRoomState(room: Room): Promise<void> {
+  if (!db) return
+  const row: ChatRoomRow = {
+    id: room.id,
+    name: room.name,
+    ownerId: room.ownerId,
+    ownerName: room.ownerName,
+    expiresAt: room.expiresAt,
+    botEnabled: room.botEnabled,
+  }
+  await db.upsertRoom(row)
+  persistedRoomIds.add(room.id)
+}
+
+/** 房間消失時從 Supabase 移除（對話一併 cascade 刪除） */
+function persistRoomDelete(roomId: string): void {
+  if (!db) return
+  void db.deleteRoom(roomId).then(() => persistedRoomIds.delete(roomId))
+}
+
+/** FAQ 寫入／刪除（/教、/忘） */
+async function persistFaq(entry: FaqEntry): Promise<void> {
+  if (!db) return
+  await db.upsertFaq(entry)
+}
+
+async function persistFaqDelete(keyword: string): Promise<void> {
+  if (!db) return
+  await db.deleteFaq(keyword)
+}
+
 /** 自訂 FAQ（/教 指令學習的內容） */
 let faqs: FaqEntry[] = []
 
 let saveTimer: NodeJS.Timeout | null = null
 
-// ── 資料持久化（JSON 檔） ─────────────────────────────────────────
+// ── JSON 檔持久化（Supabase 未設定時的退回方案） ──────────────────
 
-function loadStore(): void {
+function loadStoreFromFile(): void {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8')
     const store = JSON.parse(raw) as Partial<PersistedStore>
@@ -164,6 +231,7 @@ function loadStore(): void {
 }
 
 function scheduleSave(): void {
+  if (db) return // Supabase 模式下每筆資料即時寫入，不需要整份快照
   if (saveTimer) return
   saveTimer = setTimeout(() => {
     saveTimer = null
@@ -226,6 +294,7 @@ function closeRoom(room: Room, reason: string): void {
   }
   room.members.clear()
   rooms.delete(room.id)
+  persistRoomDelete(room.id)
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
   scheduleSave()
 }
@@ -237,6 +306,7 @@ function sweepRooms(): void {
     if (room.id === LOBBY_ID) continue
     if (room.members.size === 0) {
       rooms.delete(room.id)
+      persistRoomDelete(room.id)
       scheduleSave()
       broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
     } else if (room.expiresAt !== null && now > room.expiresAt) {
@@ -313,6 +383,7 @@ function postSystemMessage(room: Room, text: string): ChatMessage {
   if (room.messages.length > MAX_MESSAGES_PER_ROOM) {
     room.messages.splice(0, room.messages.length - MAX_MESSAGES_PER_ROOM)
   }
+  persistMessage(message)
   broadcast(room.members.keys(), { type: 'chat', message })
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
   scheduleSave()
@@ -366,6 +437,7 @@ function botDeliver(room: Room, text: string, persona: BotPersona = HELPER): voi
   if (room.messages.length > MAX_MESSAGES_PER_ROOM) {
     room.messages.splice(0, room.messages.length - MAX_MESSAGES_PER_ROOM)
   }
+  persistMessage(message)
   broadcast(room.members.keys(), { type: 'chat', message })
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
   scheduleSave()
@@ -455,6 +527,7 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
     faqs = faqs.filter((faq) => faq.keyword !== keyword)
     faqs.push({ keyword, answer })
     scheduleSave()
+    void persistFaq({ keyword, answer })
     botReplyPrivate(conn, room.id, `✅ 學會了！之後訊息只要包含「${keyword}」，我就會自動回答。`)
     return
   }
@@ -464,6 +537,7 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
     const before = faqs.length
     faqs = faqs.filter((faq) => faq.keyword !== keyword)
     scheduleSave()
+    void persistFaqDelete(keyword)
     botReplyPrivate(conn, room.id, faqs.length < before ? `✅ 已忘記「${keyword}」` : `我本來就沒學過「${keyword}」喔`)
     return
   }
@@ -564,6 +638,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       botEnabled: false,
     }
     rooms.set(room.id, room)
+    void persistRoom(room)
     joinRoom(conn, room, false)
     send(conn, { type: 'joined', roomId: room.id, messages: room.messages })
     postSystemMessage(room, `${conn.nickname} 建立了「${room.name}」（存活 ${Math.round(ROOM_LIFETIME / 60000)} 分鐘，沒有人時會立即解散）`)
@@ -618,6 +693,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     if (room.messages.length > MAX_MESSAGES_PER_ROOM) {
       room.messages.splice(0, room.messages.length - MAX_MESSAGES_PER_ROOM)
     }
+    persistMessage(message)
     broadcast(room.members.keys(), { type: 'chat', message })
     // 同步側欄的最新訊息預覽
     broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
@@ -658,6 +734,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     const room = rooms.get(msg.roomId)
     if (!room || !room.members.has(conn.userId)) return
     room.botEnabled = msg.enabled === true
+    void persistRoomState(room)
     broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
     botReplyPrivate(
       conn,
@@ -834,9 +911,45 @@ process.on('SIGINT', () => {
   httpServer.close(() => process.exit(0))
 })
 
-loadStore()
-ensureLobby()
-sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間
-httpServer.listen(PORT, () => {
-  console.log(`[chat] 聊天伺服器啟動於 ws://localhost:${PORT}/ws`)
-})
+/** 啟動：先從 Supabase（或 JSON 檔）載入狀態，就緒後才開始接受連線 */
+async function setupAndStart(): Promise<void> {
+  if (db) {
+    try {
+      const state = await db.loadState()
+      if (state) {
+        for (const row of state.rooms) {
+          rooms.set(row.id, {
+            id: row.id,
+            name: row.name,
+            ownerId: row.ownerId,
+            ownerName: row.ownerName,
+            // 沒有時間戳的自建房間：重新起算存活時間
+            expiresAt: row.expiresAt ?? (row.ownerId ? Date.now() + ROOM_LIFETIME : null),
+            messages: row.messages,
+            members: new Map(),
+            botEnabled: row.botEnabled,
+          })
+          persistedRoomIds.add(row.id)
+        }
+        faqs = state.faqs.slice(0, 200)
+        console.log(`[chat] 已從 Supabase 載入 ${state.rooms.length} 間房間、${faqs.length} 條自訂回覆`)
+      } else {
+        console.log('[chat] Supabase 讀取失敗，從空狀態啟動')
+      }
+    } catch (error) {
+      console.error('[chat] Supabase 載入發生錯誤', error)
+    }
+    ensureLobby()
+    if (rooms.has(LOBBY_ID)) await persistRoom(rooms.get(LOBBY_ID)!)
+  } else {
+    loadStoreFromFile()
+    ensureLobby()
+  }
+
+  sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間
+  httpServer.listen(PORT, () => {
+    console.log(`[chat] 聊天伺服器啟動於 ws://localhost:${PORT}/ws`)
+  })
+}
+
+void setupAndStart()

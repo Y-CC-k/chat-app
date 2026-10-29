@@ -13,7 +13,8 @@
 - ⌨️ 「正在輸入」提示（發送端節流、自動過期）
 - 😊 表情符號面板、Enter 送出 / Shift+Enter 換行
 - 🔁 斷線自動重連（指數退避）
-- 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失）
+- ☁️ 對話歷史可存 **Supabase**（各聊天室的完整對話流程、房間、FAQ；未設定時存 JSON 檔）
+- 💾 訊息歷史保存於 `server/data/store.json`（重啟不消失；無 Supabase 時）
 - 🤖 機器人「小幫手」自動答詢，可接 LLM API 真智慧答詢（見下方說明）
 - 🇺🇸 機器人「英文助教」：中文↔英文翻譯 + AI 語音朗讀（見下方說明）
 
@@ -135,8 +136,9 @@ chat-app/
 ├─ shared/protocol.ts    # 前後端共用的 WebSocket 傳輸協定型別
 ├─ server/index.ts       # WebSocket 伺服器：房間（生命週期）、成員、廣播、心跳、持久化
 ├─ server/bot.ts         # 機器人：小幫手（FAQ）＋英文助教（翻譯）
-├─ server/llm.ts         # LLM 智慧答詢（OpenAI 相容端點；未設定時優雅退回）
+├─ server/llm.ts       # LLM 智慧答詢（OpenAI 相容端點；未設定時優雅退回）
 ├─ server/tts.ts         # AI 語音（Edge 神經語音，msedge-tts）
+├─ server/db.ts          # Supabase 持久化（rooms/messages/faqs；未設定時退回 JSON）
 ├─ server/smoke.mjs      # 端對端煙霧測試
 ├─ server/expiry-test.mjs # 聊天室逾時解散測試（配合 CHAT_ROOM_LIFETIME_MS）
 └─ src/
@@ -157,8 +159,24 @@ chat-app/
 | `CHAT_LLM_MODEL`           | （未設定） | LLM 模型名稱；兩者都設定才啟用 LLM 答詢     |
 | `CHAT_LLM_API_KEY`         | `ollama`   | LLM 金鑰                                   |
 | `CHAT_ROOM_LIFETIME_MS`    | 3600000    | 自建聊天室存活毫秒數（1 小時）              |
+| `SUPABASE_URL`             | （未設定） | Supabase 專案網址；與下方 key 同設才啟用雲端儲存 |
+| `SUPABASE_SERVICE_ROLE_KEY`| （未設定） | Supabase service key（伺服器專用，勿外洩）  |
 
 支援 `.env` 檔（零相依注入；範例見 `.env.example`），正式環境變數優先於 `.env`。
+
+### Supabase 雲端儲存（選用）
+
+設定 `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` 之後，所有聊天室的**完整對話流程**（含 bot 回覆與系統訊息）、房間清單與 FAQ 都會即時寫進 Supabase：
+
+| 資料表           | 內容                                        |
+| ---------------- | ------------------------------------------- |
+| `chat_rooms`     | 房間：名稱、建立者、存活期限、機器人開關     |
+| `chat_messages`  | 每間房的完整訊息流程（系統訊息也會存）       |
+| `chat_faqs`      | 小幫手學會的 FAQ                            |
+
+- 資料表由 `server/db.ts` 用 REST API 讀寫（PostgREST），**資料表啟用了 RLS 且不開公開 policy**：只有伺服器（service key）能存取，瀏覽器側拿不到任何資料。
+- 未設定環境變數時自動退回 `server/data/store.json`，功能不受影響。
+- 遷移檔見 Supabase CLI（migration `create_chat_rooms_messages_faqs`）。
 
 ## 訊息協定（摘錄）
 
