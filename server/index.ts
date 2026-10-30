@@ -51,7 +51,7 @@ import {
 } from './bot'
 import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
 import { calendarPlainAnswer, isCalendarQuestion, schoolCalendarContext } from './calendar'
-import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext } from './schoolinfo'
+import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext, webSearch } from './schoolinfo'
 import { synthesize } from './tts'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 import { loadBlockedWords, maskSensitiveWords } from './moderation'
@@ -474,7 +474,14 @@ function botMessage(roomId: string, text: string, persona: BotPersona = HELPER, 
   }
 }
 
-/** 私訊版 bot 回覆：只傳給指定的人，不進歷史 */
+/** 回覆長度原則：超過 max 字時截到最後一個換行／條列，避免切斷句子 */
+function limitReply(text: string, max = 100): string {
+  if (text.length <= max + 10) return text
+  let cut = text.slice(0, max)
+  const lastNl = cut.lastIndexOf('\n')
+  if (lastNl > Math.floor(max * 0.4)) cut = cut.slice(0, lastNl)
+  return cut.trimEnd() + '…'
+}
 function botReplyPrivate(conn: UserConn, roomId: string, text: string, persona: BotPersona = HELPER): void {
   send(conn, { type: 'chat', message: botMessage(roomId, text, persona, Date.now() + 1) })
 }
@@ -536,17 +543,30 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
   // 學校事情查證：即時抓學校網站（佈告欄／行事曆）→ 教育局網站，把真資料交給 LLM
   let systemPrompt = HELPER_SYSTEM_PROMPT
   const webParts: string[] = []
+  const wantsSchool = isSchoolInfoQuestion(questionText)
   const cal = isCalendarQuestion(questionText) ? await schoolCalendarContext() : null
   if (cal) webParts.push(cal)
   const info = await schoolWebContext(questionText)
   if (info) webParts.push(info)
+  // 非學校問題：網路搜尋補充資料（best-effort）
+  if (!wantsSchool) {
+    const ws = await webSearch(questionText)
+    if (ws) webParts.push(ws)
+  }
   if (webParts.length > 0) {
     systemPrompt += `\n\n以下是剛剛即時從「學校網站／教育局網站」查到的參考資料，回答時以資料為準，資料裡沒有的細節不可編造：\n\n${webParts.join('\n\n')}`
   }
   botTyping(room, HELPER, true)
-  const answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: systemPrompt }, ...context]) : null
+  let answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: systemPrompt }, ...context], 120) : null
   botTyping(room, HELPER, false)
   if (answer) {
+    // 長度原則：不超過 100 字（超過則截到最後一個換行，避免切斷句子）
+    if (answer.length > 110) {
+      let cut = answer.slice(0, 100)
+      const lastNl = cut.lastIndexOf('\n')
+      if (lastNl > 40) cut = cut.slice(0, lastNl)
+      answer = cut.trimEnd() + '…'
+    }
     botDeliver(room, answer)
     logBotQa(questionText, answer, 'llm', asker, room.name)
     return
@@ -555,7 +575,7 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
   if (isCalendarQuestion(questionText)) {
     const plain = await calendarPlainAnswer()
     if (plain) {
-      botDeliver(room, plain)
+      botDeliver(room, limitReply(plain))
       logBotQa(questionText, plain, 'fallback', asker, room.name)
       return
     }
@@ -563,13 +583,13 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
   if (isSchoolInfoQuestion(questionText)) {
     const board = await schoolBoardPlainAnswer()
     if (board) {
-      botDeliver(room, board)
+      botDeliver(room, limitReply(board))
       logBotQa(questionText, board, 'fallback', asker, room.name)
       return
     }
   }
   const fallback = question ? fallbackReply() : greetingReply()
-  botDeliver(room, fallback)
+  botDeliver(room, limitReply(fallback))
   logBotQa(questionText, fallback, 'fallback', asker, room.name)
 }
 
