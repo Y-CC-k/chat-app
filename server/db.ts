@@ -47,6 +47,8 @@ interface DbMessageRow {
   color: string
   text: string
   ts: number
+  image_url?: string | null
+  sticker?: string | null
 }
 
 /** 機器人問答記錄（另存於 bot_qa_logs） */
@@ -80,6 +82,8 @@ function messageToRow(message: ChatMessage) {
     color: message.color,
     text: message.text,
     ts: message.ts,
+    image_url: message.image ?? null,
+    sticker: message.sticker ?? null,
   }
 }
 
@@ -152,6 +156,8 @@ class SupabaseStore {
         color: row.color,
         text: row.text,
         ts: Number(row.ts),
+        image: row.image_url ?? undefined,
+        sticker: row.sticker ?? undefined,
       })
     }
     // 每房只保留最新的訊息（記憶體上限邏輯與原本一致）

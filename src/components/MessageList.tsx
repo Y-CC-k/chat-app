@@ -34,11 +34,18 @@ export function MessageList({ messages, user, audio }: MessageListProps) {
     }
 
     const own = message.senderId === user.userId
+    const bubbleContent = (
+      <>
+        {message.sticker && <div className="msg-sticker">{message.sticker}</div>}
+        {message.image && <img className="msg-image" src={message.image} alt="圖片" loading="lazy" />}
+        {message.text && <div className="msg-text">{message.text}</div>}
+      </>
+    )
     if (own) {
       items.push(
         <div className="msg-row own" key={message.id}>
           <span className="msg-time">{formatTime(message.ts)}</span>
-          <div className="bubble own-bubble">{message.text}</div>
+          <div className="bubble own-bubble">{bubbleContent}</div>
         </div>,
       )
     } else {
@@ -52,7 +59,7 @@ export function MessageList({ messages, user, audio }: MessageListProps) {
               {message.senderId === BOT_EN_USER_ID && <span className="bot-tag en">🇺🇸 英文助教</span>}
             </span>
             <div className="msg-with-time">
-              <div className="bubble other-bubble">{message.text}</div>
+              <div className="bubble other-bubble">{bubbleContent}</div>
               {message.senderId === BOT_EN_USER_ID && isMostlyEnglish(message.text) && (
                 <button
                   type="button"

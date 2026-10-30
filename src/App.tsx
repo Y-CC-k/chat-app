@@ -39,6 +39,8 @@ export default function App() {
         typingUsers={chat.activeRoomId ? chat.typing[chat.activeRoomId] ?? [] : []}
         error={chat.error}
         onSend={chat.sendChat}
+        onSendSticker={chat.sendSticker}
+        onSendImage={chat.uploadAndSendImage}
         onTyping={chat.notifyTyping}
         onLeave={chat.leaveRoom}
         onBotToggle={chat.botToggle}

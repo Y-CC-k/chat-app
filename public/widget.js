@@ -139,6 +139,12 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   border-radius: 50%; font-size: 17px; align-self: center; display: flex; align-items: center; justify-content: center;
 }
 .footer .send:disabled { opacity: .45; }
+  .sticker-panel { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; background: #f7f9fc; border-top: 1px solid #e5e9ee; max-height: 120px; overflow-y: auto; }
+  .sticker-btn { background: none; border: none; font-size: 22px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+  .sticker-btn:hover { background: #eef2f7; }
+  .bubble.sticker { font-size: 44px; line-height: 1; background: transparent; padding: 0; box-shadow: none; }
+  .msg-image { max-width: 160px; max-height: 160px; border-radius: 10px; display: block; margin: 2px 0; }
+  .bubble .msg-text { margin-top: 4px; font-size: 14px; }
 @media (max-width: 480px) {
   .panel { bottom: 0; height: 100vh; width: 100vw; border-radius: 0; }
   .fab { bottom: 16px; }
@@ -219,10 +225,35 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   input.placeholder = '輸入問題…（Enter 送出，最多 50 字）'
   input.maxLength = MAX_LEN
   const counter = el('span', 'count', '0/' + MAX_LEN)
+  const stickerBtn = el('button', 'send', '😊')
+  stickerBtn.title = '貼圖'
+  stickerBtn.style.background = '#fff'
+  stickerBtn.style.color = cfg.accent
+  stickerBtn.style.border = '1px solid #e5e9ee'
+  const imageBtn = el('button', 'send', '📎')
+  imageBtn.title = '上傳圖片'
+  imageBtn.style.background = '#fff'
+  imageBtn.style.color = cfg.accent
+  imageBtn.style.border = '1px solid #e5e9ee'
+  const fileInput = document.createElement('input')
+  fileInput.type = 'file'
+  fileInput.accept = 'image/png,image/jpeg,image/webp,image/gif'
+  fileInput.style.display = 'none'
   const sendBtn = el('button', 'send', '➤')
   sendBtn.disabled = true
-  footer.append(input, counter, sendBtn)
+  footer.append(stickerBtn, imageBtn, fileInput, input, counter, sendBtn)
   panel.append(head, list, status, footer)
+
+  // 貼圖面板
+  const STICKERS = ['😀','😂','😍','🤔','👍','❤️','🎉','🔥','⭐','🚀','🐱','🐶','💯','🙏','👏','😭']
+  const stickerPanel = el('div', 'sticker-panel')
+  stickerPanel.style.display = 'none'
+  for (const s of STICKERS) {
+    const b = el('button', 'sticker-btn', s)
+    b.addEventListener('click', () => { sendSticker(s); stickerPanel.style.display = 'none' })
+    stickerPanel.appendChild(b)
+  }
+  panel.insertBefore(stickerPanel, footer)
 
   root.append(styleTag, fab, panel)
 
@@ -267,7 +298,24 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
     if (m.kind === 'system') return // 加入／離開／解散等系統訊息：私人小幫手情境不需要，不顯示
     const row = el('div', 'msg' + (m.senderId === myUserId ? ' self' : ''))
     const nameLine = m.senderId === myUserId ? null : el('div', 'name', m.senderName)
-    const bubble = el('div', 'bubble', m.text)
+    const bubble = el('div', 'bubble')
+    if (m.sticker) {
+      bubble.classList.add('sticker')
+      bubble.textContent = m.sticker
+    } else if (m.image) {
+      const img = document.createElement('img')
+      img.src = m.image
+      img.alt = '圖片'
+      img.className = 'msg-image'
+      img.loading = 'lazy'
+      bubble.appendChild(img)
+      if (m.text) {
+        const t = el('div', 'msg-text', m.text)
+        bubble.appendChild(t)
+      }
+    } else {
+      bubble.textContent = m.text
+    }
     if (nameLine) {
       const wrap = el('div')
       wrap.append(nameLine, bubble)
@@ -447,7 +495,50 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
     }, 30000)
   }
 
+  stickerBtn.addEventListener('click', () => {
+    stickerPanel.style.display = stickerPanel.style.display === 'none' ? 'flex' : 'none'
+  })
+  imageBtn.addEventListener('click', () => fileInput.click())
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0]
+    fileInput.value = ''
+    if (f) sendImageFile(f)
+  })
+  input.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items
+    if (!items) return
+    for (const it of items) {
+      if (it.type && it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) { e.preventDefault(); sendImageFile(f); return }
+      }
+    }
+  })
   input.addEventListener('input', refreshComposer)
+  function sendSticker(emoji) {
+    if (state !== 'ready' || !ws || ws.readyState !== 1 || !myRoomId) return
+    try { ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: '', sticker: emoji })) } catch (_) { status.textContent = '訊息送不出去，再送一次即可重連'; return }
+    clearTimeout(replyWatchdog)
+    replyWatchdog = setTimeout(() => { if (state === 'ready') status.textContent = '小幫手想了很久還沒回…再送一次試試' }, 30000)
+  }
+  async function sendImageFile(file) {
+    if (state !== 'ready' || !ws || ws.readyState !== 1 || !myRoomId) { status.textContent = '連線中…請等幾秒再送一次'; return }
+    if (!file.type || !file.type.startsWith('image/')) { status.textContent = '只支援圖片檔'; return }
+    if (file.size > 3 * 1024 * 1024) { status.textContent = '圖片太大（上限 3MB）'; return }
+    status.textContent = '上傳圖片中…'
+    try {
+      const dataUrl = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(file) })
+      const base64 = String(dataUrl).split(',')[1]
+      const res = await fetch(scriptOrigin() + '/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: base64, mime: file.type }) })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.url) { status.textContent = json.error || '上傳失敗'; return }
+      ws.send(JSON.stringify({ type: 'chat', roomId: myRoomId, text: '', image: json.url }))
+      status.textContent = ''
+      clearTimeout(replyWatchdog)
+      replyWatchdog = setTimeout(() => { if (state === 'ready') status.textContent = '小幫手想了很久還沒回…再送一次試試' }, 30000)
+    } catch (e) { status.textContent = '上傳失敗，再試一次' }
+  }
+
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

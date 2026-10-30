@@ -10,6 +10,10 @@ export interface ChatMessage {
   color: string
   text: string
   ts: number
+  /** 貼圖／圖片訊息：圖片 URL（Supabase storage 公開連結） */
+  image?: string
+  /** 貼圖／表情貼圖：emoji 字串（放大顯示） */
+  sticker?: string
 }
 
 export interface MemberInfo {
@@ -43,7 +47,7 @@ export interface ServerUser {
 
 export type ClientMsg =
   | { type: 'hello'; nickname: string; color?: string; /** widget 訪客不進大廳：大廳訊息不流入外掛 */ skipLobby?: boolean }
-  | { type: 'chat'; roomId: string; text: string }
+  | { type: 'chat'; roomId: string; text?: string; image?: string; sticker?: string }
   | { type: 'typing'; roomId: string; typing: boolean }
   | { type: 'room:create'; name: string }
   | { type: 'room:join'; roomId: string }

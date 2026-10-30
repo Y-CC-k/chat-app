@@ -8,18 +8,24 @@ const EMOJIS = [
   '🐱','🐶','🐰','🐻','🐯','🐮','🐷','🐸','🚀','🍀',
 ]
 
+const STICKERS = ['😀','😂','😍','🤔','👍','❤️','🎉','🔥','⭐','🚀','🐱','🐶','💯','🙏','👏','😭','😎','🥳','😱','🤩']
+
 interface ComposerProps {
   typingHint: string | null
   tutorMode: boolean
   onSend: (text: string) => void
+  onSendSticker: (emoji: string) => void
+  onSendImage: (file: File) => void
   onTyping: () => void
 }
 
-/** 訊息輸入列：文字方塊、表情符號、送出 */
-export function Composer({ typingHint, tutorMode, onSend, onTyping }: ComposerProps) {
+/** 訊息輸入列：文字方塊、表情符號、貼圖、圖片、送出 */
+export function Composer({ typingHint, tutorMode, onSend, onSendSticker, onSendImage, onTyping }: ComposerProps) {
   const [text, setText] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
+  const [showSticker, setShowSticker] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
 
   function update(next: string) {
     setText(next)
@@ -32,6 +38,7 @@ export function Composer({ typingHint, tutorMode, onSend, onTyping }: ComposerPr
     onSend(value)
     setText('')
     setShowEmoji(false)
+    setShowSticker(false)
     inputRef.current?.focus()
   }
 
@@ -59,6 +66,21 @@ export function Composer({ typingHint, tutorMode, onSend, onTyping }: ComposerPr
     })
   }
 
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = event.clipboardData?.items
+    if (!items) return
+    for (const it of Array.from(items)) {
+      if (it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) {
+          event.preventDefault()
+          onSendImage(f)
+          return
+        }
+      }
+    }
+  }
+
   return (
     <div className="composer-wrap">
       <div className="typing-hint">{typingHint}</div>
@@ -72,14 +94,45 @@ export function Composer({ typingHint, tutorMode, onSend, onTyping }: ComposerPr
             ))}
           </div>
         )}
+        {showSticker && (
+          <div className="sticker-panel">
+            {STICKERS.map((emoji) => (
+              <button type="button" key={emoji} className="sticker-btn" onClick={() => { onSendSticker(emoji); setShowSticker(false) }}>
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           className={`icon-btn emoji-toggle${showEmoji ? ' active' : ''}`}
           title="表情符號"
-          onClick={() => setShowEmoji((prev) => !prev)}
+          onClick={() => { setShowEmoji((p) => !p); setShowSticker(false) }}
         >
           😊
         </button>
+        <button
+          type="button"
+          className={`icon-btn sticker-toggle${showSticker ? ' active' : ''}`}
+          title="貼圖"
+          onClick={() => { setShowSticker((p) => !p); setShowEmoji(false) }}
+        >
+          🎉
+        </button>
+        <button type="button" className="icon-btn image-toggle" title="上傳圖片" onClick={() => fileRef.current?.click()}>
+          📎
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (f) onSendImage(f)
+          }}
+        />
         <textarea
           ref={inputRef}
           className="composer-input"
@@ -93,6 +146,7 @@ export function Composer({ typingHint, tutorMode, onSend, onTyping }: ComposerPr
           maxLength={MAX_TEXT_LENGTH}
           onChange={(event) => update(event.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
         />
         <button type="button" className="send-btn" title="送出" disabled={!text.trim()} onClick={send}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">

@@ -292,6 +292,53 @@ export function useChat() {
     [send],
   )
 
+  const sendSticker = useCallback(
+    (emoji: string) => {
+      const roomId = activeRoomRef.current
+      if (!roomId) return
+      send({ type: 'chat', roomId, text: '', sticker: emoji })
+    },
+    [send],
+  )
+
+  const uploadAndSendImage = useCallback(
+    async (file: File) => {
+      const roomId = activeRoomRef.current
+      if (!roomId) return
+      if (!file.type.startsWith('image/')) {
+        showStatusError('只支援圖片檔')
+        return
+      }
+      if (file.size > 3 * 1024 * 1024) {
+        showStatusError('圖片太大（上限 3MB）')
+        return
+      }
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader()
+          r.onload = () => resolve(String(r.result))
+          r.onerror = () => reject(new Error('read failed'))
+          r.readAsDataURL(file)
+        })
+        const base64 = dataUrl.split(',')[1]
+        const res = await fetch('/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: base64, mime: file.type }),
+        })
+        const json = (await res.json()) as { url?: string; error?: string }
+        if (!res.ok || !json.url) {
+          showStatusError(json.error ?? '上傳失敗')
+          return
+        }
+        send({ type: 'chat', roomId, text: '', image: json.url })
+      } catch {
+        showStatusError('上傳失敗，再試一次')
+      }
+    },
+    [send, showStatusError],
+  )
+
   const notifyTyping = useCallback(() => {
     const roomId = activeRoomRef.current
     if (!roomId) return
@@ -356,6 +403,8 @@ export function useChat() {
     createRoom,
     leaveRoom,
     sendChat,
+    sendSticker,
+    uploadAndSendImage,
     notifyTyping,
     botToggle,
     toggleAutoSpeak,

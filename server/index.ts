@@ -773,9 +773,18 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       send(conn, { type: 'error', message: '你不在這個房間' })
       return
     }
-    const cleaned = maskSensitiveWords(sanitizeText(msg.text, MAX_TEXT_LENGTH), BLOCKED_WORDS)
+    const cleaned = maskSensitiveWords(sanitizeText(msg.text ?? '', MAX_TEXT_LENGTH), BLOCKED_WORDS)
     const text = cleaned.text
-    if (!text) return
+    // 貼圖／圖片訊息：text 可為空，但 image/sticker 其一必須存在
+    let sticker = typeof msg.sticker === 'string' ? msg.sticker.trim().slice(0, 8) : ''
+    if (sticker && ![...sticker].every((ch) => /[\p{Emoji}\p{Emoji_Component}]/u.test(ch))) sticker = ''
+    let image = typeof msg.image === 'string' ? msg.image.trim() : ''
+    // 只接受自己上傳到 Supabase storage 的圖片連結，避免任意外部圖片
+    if (image) {
+      const prefix = (process.env.SUPABASE_URL ?? '').trim().replace(/\/+$/, '') + '/storage/v1/object/public/chat-images/'
+      if (!image.startsWith(prefix)) image = ''
+    }
+    if (!text && !image && !sticker) return
     if (cleaned.masked > 0) {
       botReplyPrivate(conn, room.id, '⚠️ 你的訊息包含的部分文字不適合在聊天室出現，已自動遮蔽。請注意用語喔！')
     }
@@ -797,6 +806,8 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       color: conn.color,
       text,
       ts: Date.now(),
+      image: image || undefined,
+      sticker: sticker || undefined,
     }
     room.messages.push(message)
     if (room.messages.length > MAX_MESSAGES_PER_ROOM) {
@@ -810,9 +821,15 @@ function handleClientMsg(conn: UserConn, raw: string): void {
 
     // 英文教室：房內唯一有朗讀功能——自己的訊息朗讀＋英文助教自動翻譯
     if (room.id === ENGLISH_ROOM_ID) {
-      const voice: 'en' | 'zh' = isMostlyChinese(text) ? 'zh' : 'en'
-      void deliverTts(room, message, voice)
-      tutorTranslateReply(room, text, conn.nickname)
+      if (text) {
+        const voice: 'en' | 'zh' = isMostlyChinese(text) ? 'zh' : 'en'
+        void deliverTts(room, message, voice)
+        tutorTranslateReply(room, text, conn.nickname)
+      }
+      // 圖片／貼圖訊息仍朗讀其 alt 文字（若無文字則不朗讀）
+      if (image || sticker) {
+        // 不自動翻譯圖片；僅朗讀貼圖 emoji 的英文描述（由瀏覽器 TTS 處理）
+      }
       return
     }
 
@@ -961,7 +978,86 @@ function serveStatic(request: http.IncomingMessage, res: http.ServerResponse): b
   return true
 }
 
+/** 上傳圖片到 Supabase storage（chat-images 公開 bucket），回傳公開 URL */
+const SUPABASE_URL_ENV = (process.env.SUPABASE_URL ?? '').trim().replace(/\/+$/, '')
+const SUPABASE_KEY_ENV = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim()
+const CHAT_IMAGES_BUCKET = 'chat-images'
+
+async function ensureChatImagesBucket(): Promise<void> {
+  if (!SUPABASE_URL_ENV || !SUPABASE_KEY_ENV) return
+  try {
+    await fetch(`${SUPABASE_URL_ENV}/storage/v1/bucket`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY_ENV, Authorization: `Bearer ${SUPABASE_KEY_ENV}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: CHAT_IMAGES_BUCKET, name: CHAT_IMAGES_BUCKET, public: true, file_size_limit: 3145728, allowed_mime_types: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'] }),
+    })
+  } catch (error) {
+    console.error('[chat] 建立 chat-images bucket 失敗', error instanceof Error ? error.message : error)
+  }
+}
+
+async function uploadImageBuffer(buffer: Buffer, contentType: string): Promise<string | null> {
+  if (!SUPABASE_URL_ENV || !SUPABASE_KEY_ENV) return null
+  const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : contentType.includes('gif') ? 'gif' : 'jpg'
+  const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`
+  try {
+    const res = await fetch(`${SUPABASE_URL_ENV}/storage/v1/object/${CHAT_IMAGES_BUCKET}/${filename}`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY_ENV, Authorization: `Bearer ${SUPABASE_KEY_ENV}`, 'Content-Type': contentType, 'x-upsert': 'false' },
+      body: buffer,
+    })
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      console.error('[chat] 圖片上傳失敗', res.status, detail.slice(0, 200))
+      return null
+    }
+    return `${SUPABASE_URL_ENV}/storage/v1/object/public/${CHAT_IMAGES_BUCKET}/${filename}`
+  } catch (error) {
+    console.error('[chat] 圖片上傳錯誤', error instanceof Error ? error.message : error)
+    return null
+  }
+}
+
 const httpServer = http.createServer((req, res) => {
+  // 上傳圖片（base64 JSON）：POST /upload  { data: base64, mime: 'image/png' }
+  if (req.method === 'POST' && (req.url ?? '').split('?')[0] === '/upload') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    const chunks: Buffer[] = []
+    let size = 0
+    const LIMIT = 4 * 1024 * 1024
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > LIMIT) { req.destroy(); return }
+      chunks.push(chunk)
+    })
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { data?: string; mime?: string }
+        const mime = (body.mime ?? '').toLowerCase()
+        const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']
+        if (!allowed.includes(mime) || !body.data) {
+          res.writeHead(400); res.end(JSON.stringify({ error: '不支援的圖片格式' })); return
+        }
+        const buffer = Buffer.from(body.data, 'base64')
+        if (buffer.length === 0 || buffer.length > 3 * 1024 * 1024) {
+          res.writeHead(400); res.end(JSON.stringify({ error: '圖片太大（上限 3MB）' })); return
+        }
+        const url = await uploadImageBuffer(buffer, mime)
+        if (!url) { res.writeHead(500); res.end(JSON.stringify({ error: '上傳失敗' })); return }
+        res.writeHead(200); res.end(JSON.stringify({ url }))
+      } catch (error) {
+        res.writeHead(400); res.end(JSON.stringify({ error: '無法解析上傳內容' }))
+      }
+    })
+    return
+  }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.writeHead(204); res.end(); return
+  }
   if (serveStatic(req, res)) return
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify({ ok: true, rooms: rooms.size }))
@@ -1061,10 +1157,12 @@ async function setupAndStart(): Promise<void> {
     ensureEnglishRoom()
     if (rooms.has(LOBBY_ID)) await persistRoom(rooms.get(LOBBY_ID)!)
     if (rooms.has(ENGLISH_ROOM_ID)) await persistRoom(rooms.get(ENGLISH_ROOM_ID)!)
+    await ensureChatImagesBucket()
   } else {
     loadStoreFromFile()
     ensureLobby()
     ensureEnglishRoom()
+    await ensureChatImagesBucket()
   }
 
   sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間

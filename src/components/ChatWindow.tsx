@@ -15,6 +15,8 @@ interface ChatWindowProps {
   autoSpeak: boolean
   tutorMode: boolean
   onSend: (text: string) => void
+  onSendSticker: (emoji: string) => void
+  onSendImage: (file: File) => void
   onTyping: () => void
   onLeave: (roomId: string) => void
   onBotToggle: (roomId: string, enabled: boolean) => void
@@ -32,6 +34,8 @@ export function ChatWindow({
   autoSpeak,
   tutorMode,
   onSend,
+  onSendSticker,
+  onSendImage,
   onTyping,
   onLeave,
   onBotToggle,
@@ -130,7 +134,7 @@ export function ChatWindow({
         </div>
       )}
 
-      <Composer typingHint={typingHint} onSend={onSend} onTyping={onTyping} tutorMode={tutorMode} />
+      <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} />
     </main>
   )
 }

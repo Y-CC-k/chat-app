@@ -771,3 +771,12 @@ ul {
 ::-webkit-scrollbar-thumb:hover {
   background: #b4bac0;
 }
+
+
+/* ¶K¹Ï¡þ¹Ï¤ù */
+.msg-image { max-width: 260px; max-height: 260px; border-radius: 12px; display: block; margin: 2px 0; }
+.msg-sticker { font-size: 64px; line-height: 1; }
+.sticker-panel { position: absolute; bottom: 64px; left: 60px; width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 34px rgba(0,0,0,0.16); padding: 10px; display: grid; grid-template-columns: repeat(8,1fr); gap: 6px; z-index: 5; }
+.sticker-btn { font-size: 26px; background: none; border: none; cursor: pointer; padding: 4px; border-radius: 8px; }
+.sticker-btn:hover { background: var(--line); }
+.msg-text { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
