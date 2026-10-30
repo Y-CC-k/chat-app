@@ -62,6 +62,7 @@ interface CacheEntry<T> {
 
 let boardCache: CacheEntry<BoardItem[]> | null = null
 const openDataCache = new Map<string, CacheEntry<SearchHit[] | null>>()
+const webSearchCache = new Map<string, CacheEntry<SearchHit[] | null>>()
 
 async function fetchText(url: string): Promise<string | null> {
   try {
@@ -79,6 +80,65 @@ async function fetchText(url: string): Promise<string | null> {
   }
 }
 
+/** 校務佈告欄最新公告（快取 10 分鐘） */
+export async function schoolBoard(): Promise<BoardItem[]> {
+  if (boardCache && Date.now() - boardCache.at < BOARD_CACHE_TTL_MS) return boardCache.value
+  const html = await fetchText(SCHOOL_BOARD_URL)
+  if (!html) return boardCache?.value ?? []
+  const items: BoardItem[] = []
+  const re = /<a[^>]+class="new-title"[^>]*href="([^"]+)"[^>]*>\s*([^<]+?)\s*<\/a>\s*<\/td>\s*<td[^>]*>([\d-]{10})/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    const title = m[2].replace(/\s+/g, ' ').trim()
+    if (!title) continue
+    items.push({ title, date: m[3], url: new URL(m[1], SCHOOL_BOARD_URL).toString() })
+  }
+  items.sort((a, b) => b.date.localeCompare(a.date))
+  if (items.length > 0) boardCache = { at: Date.now(), value: items }
+  return items
+}
+
+/** 政府資料開放平台（data.gov.tw）資料集搜尋（快取 30 分鐘／組關鍵字；抓不到回 null，不代表沒有資料） */
+async function openDataSearch(question: string): Promise<SearchHit[] | null> {
+  const key = question.trim()
+  const cached = openDataCache.get(key)
+  if (cached && Date.now() - cached.at < OPEN_DATA_CACHE_TTL_MS) return cached.value
+  try {
+    const keyword = question.replace(/[？?！!，,。．.\s]+/g, ' ').trim().slice(0, 120)
+    const res = await fetch(OPEN_DATA_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({
+        bool: [{ fulltext: { value: keyword } }],
+        filter: [],
+        page_num: 1,
+        page_limit: 8,
+        tids: [],
+        sort: '_score_desc',
+      }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) {
+      openDataCache.set(key, { at: Date.now(), value: null })
+      return null
+    }
+    const j = (await res.json()) as {
+      payload?: { search_result?: Array<{ title?: string; agency_name?: string; nid?: number; content?: string }> }
+    }
+    const hits: SearchHit[] = (j.payload?.search_result ?? [])
+      .filter((r) => r.title && r.nid)
+      .map((r) => ({
+        title: String(r.title).trim(),
+        agency: String(r.agency_name ?? '').trim(),
+        url: `https://data.gov.tw/dataset/${r.nid}`,
+      }))
+    openDataCache.set(key, { at: Date.now(), value: hits })
+    return hits
+  } catch {
+    return null
+  }
+}
+
 /** 抓學校內頁 HTML → 純文字（移除 script/style/標籤，快取 30 分鐘） */
 async function fetchSchoolPageText(url: string): Promise<string | null> {
   const cached = schoolPageCache.get(url)
@@ -88,7 +148,6 @@ async function fetchSchoolPageText(url: string): Promise<string | null> {
     schoolPageCache.set(url, { at: Date.now(), value: null })
     return null
   }
-  // 移除 script/style/nav/footer，避免導覽列雜訊
   const cleaned = html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -113,44 +172,42 @@ async function fetchSchoolPageText(url: string): Promise<string | null> {
   return sliced
 }
 
-/** 網路搜尋（Bing，best-effort；快取 30 分鐘／組關鍵字） */
-const webSearchCache = new Map<string, CacheEntry<SearchHit[] | null>>()
-async function webSearch(question: string): Promise<string | null> {
-  const key = question.trim()
-  const cached = webSearchCache.get(key)
-  if (cached && Date.now() - cached.at < OPEN_DATA_CACHE_TTL_MS) {
-    if (!cached.value || cached.value.length === 0) return null
-    return [
-      '【網路搜尋結果（參考，來源：Bing）】',
-      ...cached.value.slice(0, 5).map((h) => `- ${h.title}${h.agency ? `（${h.agency}）` : ''} ${h.url}`),
-    ].join('\n')
-  }
+/** 天氣關鍵字 → 查 Open-Meteo（免費、免金鑰）清水/臺中 即時天氣 */
+const WEATHER_KEYWORDS = /天氣|氣溫|溫度|下雨|降雨|會不會雨|出太陽|晴|陰天|颱風|氣象|多雲|幾度/
+const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000
+let weatherCache: CacheEntry<string | null> | null = null
+
+const WMO: Record<number, string> = {
+  0: '晴朗', 1: '大致晴朗', 2: '局部多雲', 3: '陰天',
+  45: '霧', 48: '霧凇',
+  51: '毛毛雨', 53: '毛毛雨', 55: '毛毛雨',
+  56: '凍毛毛雨', 57: '凍毛毛雨',
+  61: '小雨', 63: '中雨', 65: '大雨',
+  66: '凍雨', 67: '凍雨',
+  71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
+  80: '陣雨', 81: '強陣雨', 82: '劇烈陣雨',
+  85: '陣雪', 86: '強陣雪',
+  95: '雷雨', 96: '雷雨帶雹', 99: '雷雨帶雹',
+}
+
+export async function weatherContext(question: string): Promise<string | null> {
+  if (!WEATHER_KEYWORDS.test(question)) return null
+  if (weatherCache && Date.now() - weatherCache.at < WEATHER_CACHE_TTL_MS) return weatherCache.value
   try {
-    const q = `${question} 槺榔國小`.slice(0, 200)
-    const html = await fetchText(`https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=zh-hant`)
-    if (html === null) {
-      webSearchCache.set(key, { at: Date.now(), value: null })
-      return null
-    }
-    const hits: SearchHit[] = []
-    const re = /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(html)) !== null) {
-      const url = m[1]
-      if (!url.startsWith('http')) continue
-      const title = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-      if (!title) continue
-      if (hits.some((h) => h.url === url)) continue
-      // 嘗試抓 snippet（<p> 或 <div class="b_caption"> 內文）
-      hits.push({ title, agency: '', url })
-      if (hits.length >= 5) break
-    }
-    webSearchCache.set(key, { at: Date.now(), value: hits })
-    if (hits.length === 0) return null
-    return [
-      '【網路搜尋結果（參考，來源：Bing）】',
-      ...hits.map((h) => `- ${h.title} ${h.url}`),
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=24.266&longitude=120.567&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTaipei&forecast_days=1'
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (!res.ok) { weatherCache = { at: Date.now(), value: null }; return null }
+    const j = await res.json() as any
+    const cur = j.current
+    const daily = j.daily
+    const desc = WMO[cur.weather_code] ?? '未知'
+    const text = [
+      '【清水區即時天氣（來源：Open-Meteo）】',
+      `現在：${desc}，氣溫 ${cur.temperature_2m}°C，濕度 ${cur.relative_humidity_2m}%，風速 ${cur.wind_speed_10m} km/h`,
+      `今天：高溫 ${daily.temperature_2m_max[0]}°C / 低溫 ${daily.temperature_2m_min[0]}°C，降雨機率 ${daily.precipitation_probability_max[0]}%`,
     ].join('\n')
+    weatherCache = { at: Date.now(), value: text }
+    return text
   } catch {
     return null
   }
@@ -161,14 +218,12 @@ function pickSchoolPages(question: string): Array<{ url: string; title: string }
     for (const kw of p.keywords) {
       if (question.includes(kw)) score += 2
     }
-    // 通用關鍵字保底：問到學校事情時至少拉「關於槺榔」
     if (score === 0 && /學校|校園|槺榔|klnes/i.test(question)) score = 1
     return { ...p, score }
   })
   scored.sort((a, b) => b.score - a.score)
   const picked = scored.filter((p) => p.score > 0).slice(0, 2)
   if (picked.length === 0) picked.push(scored[0])
-  // 去重
   const seen = new Set<string>()
   return picked.filter((p) => (seen.has(p.url) ? false : (seen.add(p.url), true)))
 }
@@ -186,66 +241,57 @@ async function schoolSiteContext(question: string): Promise<string | null> {
   return blocks.join('\n\n')
 }
 
-/** 校務佈告欄最新公告（快取 10 分鐘） */
-export async function schoolBoard(): Promise<BoardItem[]> {
-  if (boardCache && Date.now() - boardCache.at < BOARD_CACHE_TTL_MS) return boardCache.value
-  const html = await fetchText(SCHOOL_BOARD_URL)
-  if (!html) return boardCache?.value ?? []
-  const items: BoardItem[] = []
-  const re = /<a[^>]+class="new-title"[^>]*href="([^"]+)"[^>]*>\s*([^<]+?)\s*<\/a>\s*<\/td>\s*<td[^>]*>([\d-]{10})/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html)) !== null) {
-    const title = m[2].replace(/\s+/g, ' ').trim()
-    if (!title) continue
-    items.push({ title, date: m[3], url: new URL(m[1], SCHOOL_BOARD_URL).toString() })
-  }
-  // 依日期新到舊
-  items.sort((a, b) => b.date.localeCompare(a.date))
-  if (items.length > 0) boardCache = { at: Date.now(), value: items }
-  return items
-}
-
-/** 政府資料開放平台（data.gov.tw）資料集搜尋（快取 30 分鐘／組關鍵字；抓不到回 null，不代表沒有資料） */
-async function openDataSearch(question: string): Promise<SearchHit[] | null> {
+/** 網路搜尋（Bing，best-effort；快取 30 分鐘／組關鍵字） */
+export async function webSearch(question: string): Promise<string | null> {
   const key = question.trim()
-  const cached = openDataCache.get(key)
-  if (cached && Date.now() - cached.at < OPEN_DATA_CACHE_TTL_MS) return cached.value
+  const cached = webSearchCache.get(key)
+  if (cached && Date.now() - cached.at < OPEN_DATA_CACHE_TTL_MS) {
+    if (!cached.value || cached.value.length === 0) return null
+    return [
+      '【網路搜尋結果（參考，來源：Bing）】',
+      ...cached.value.slice(0, 5).map((h) => `- ${h.title}${h.agency ? `：${h.agency}` : ''} ${h.url}`),
+    ].join('\n')
+  }
   try {
-    const keyword = question.replace(/[？?！!，,。．.\s]+/g, ' ').trim().slice(0, 120)
-    const res = await fetch(OPEN_DATA_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      // 官網搜尋用的真實格式（fulltext 全文比對）
-      body: JSON.stringify({
-        bool: [{ fulltext: { value: keyword } }],
-        filter: [],
-        page_num: 1,
-        page_limit: 8,
-        tids: [],
-        sort: '_score_desc',
-      }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
-    if (!res.ok) {
-      openDataCache.set(key, { at: Date.now(), value: null })
+    const q = question.slice(0, 200)
+    const html = await fetchText(`https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=zh-hant`)
+    if (html === null) {
+      webSearchCache.set(key, { at: Date.now(), value: null })
       return null
     }
-    const j = (await res.json()) as {
-      payload?: {
-        search_result?: Array<{ title?: string; agency_name?: string; nid?: number; content?: string }>
+    const hits: SearchHit[] = []
+    const re = /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]{0,500}?<p[^>]*>([\s\S]*?)<\/p>/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(html)) !== null) {
+      const url = m[1]
+      if (!url.startsWith('http')) continue
+      const title = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      const snippet = m[3].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      if (!title) continue
+      if (hits.some((h) => h.url === url)) continue
+      hits.push({ title, agency: snippet.slice(0, 100), url })
+      if (hits.length >= 5) break
+    }
+    if (hits.length === 0) {
+      const re2 = /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
+      while ((m = re2.exec(html)) !== null) {
+        const url = m[1]
+        if (!url.startsWith('http')) continue
+        const title = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+        if (!title) continue
+        if (hits.some((h) => h.url === url)) continue
+        hits.push({ title, agency: '', url })
+        if (hits.length >= 5) break
       }
     }
-    const hits: SearchHit[] = (j.payload?.search_result ?? [])
-      .filter((r) => r.title && r.nid)
-      .map((r) => ({
-        title: String(r.title).trim(),
-        agency: String(r.agency_name ?? '').trim(),
-        url: `https://data.gov.tw/dataset/${r.nid}`,
-      }))
-    openDataCache.set(key, { at: Date.now(), value: hits })
-    return hits
+    webSearchCache.set(key, { at: Date.now(), value: hits })
+    if (hits.length === 0) return null
+    return [
+      '【網路搜尋結果（參考，來源：Bing）】',
+      ...hits.map((h) => `- ${h.title}${h.agency ? `：${h.agency}` : ''} ${h.url}`),
+    ].join('\n')
   } catch {
-    return null // 抓取失敗不快取，下次再試
+    return null
   }
 }
 
@@ -267,7 +313,6 @@ export async function schoolWebContext(question: string): Promise<string | null>
   const parts: string[] = []
 
   if (wantsSchool) {
-    // ①② 學校網站內頁（優先）
     const site = await schoolSiteContext(question)
     if (site) parts.push(site)
   }
@@ -283,7 +328,7 @@ export async function schoolWebContext(question: string): Promise<string | null>
       parts.push([
         '【槺榔國小校務佈告欄最新公告（來源：學校網站）】',
         ...board.slice(0, 12).map((b) => `- ${b.date} ${b.title}`),
-        `※ 公告內文：https://klnes.tc.edu.tw（校務佈告欄）`,
+        '※ 公告內文：https://klnes.tc.edu.tw（校務佈告欄）',
       ].join('\n'))
     }
     const hits = await openDataSearch(question)
@@ -297,7 +342,6 @@ export async function schoolWebContext(question: string): Promise<string | null>
           : '【政府資料開放平台搜尋】沒有找到相關的資料集',
       )
     }
-    // ⑥ 網路搜尋（best-effort）
     const web = await webSearch(question)
     if (web) parts.push(web)
   }

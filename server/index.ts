@@ -51,7 +51,7 @@ import {
 } from './bot'
 import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
 import { calendarPlainAnswer, isCalendarQuestion, schoolCalendarContext } from './calendar'
-import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext, webSearch } from './schoolinfo'
+import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext, webSearch, weatherContext } from './schoolinfo'
 import { synthesize } from './tts'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 import { loadBlockedWords, maskSensitiveWords } from './moderation'
@@ -550,6 +550,9 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
   if (cal) webParts.push(cal)
   const info = await schoolWebContext(questionText)
   if (info) webParts.push(info)
+  // 天氣：Open-Meteo 即時天氣（清水區）
+  const w = await weatherContext(questionText)
+  if (w) webParts.push(w)
   // 非學校問題：網路搜尋補充資料（best-effort）
   if (!wantsSchool) {
     const ws = await webSearch(questionText)
