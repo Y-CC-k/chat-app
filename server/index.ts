@@ -683,9 +683,9 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       ? msg.color
       : conn.color
     conn.color = color
-    // hello 之後一律送出 welcome；新連線再自動加入大廳
+    // hello 之後一律送出 welcome；新連線再自動加入大廳（widget 訪客帶 skipLobby，不進大廳）
     send(conn, { type: 'welcome', user: { userId: conn.userId, nickname, color } })
-    if (isNew) joinRoom(conn, ensureLobby())
+    if (isNew && msg.skipLobby !== true) joinRoom(conn, ensureLobby())
     broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
     return
   }

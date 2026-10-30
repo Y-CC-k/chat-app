@@ -246,6 +246,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   let openedManually = false
   let unread = 0
   let replyWatchdog = null // 送訊息後 30 秒無回覆的提示計時器
+  let recreateTimer = null // 開房失敗的自動重試計時器
+  let createRetries = 0 // 已重試次數
 
   function setState(s, note) {
     state = s
@@ -316,6 +318,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
       ws.send(JSON.stringify({
         type: 'hello',
         nickname,
+        // widget 訪客不進大廳：大廳的聊天／系統訊息完全不會流入外掛
+        skipLobby: true,
         color: ['#06c755', '#3b82f6', '#f97316', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444', '#eab308'][(Date.now() % 232) % 8] ?? '#06c755',
       }))
     }
@@ -333,6 +337,9 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
           return
         }
         case 'joined': {
+          myRoomId = msg.roomId
+          createRetries = 0
+          clearTimeout(recreateTimer)
           myRoomId = msg.roomId
           // 開新房後啟用機器人（房主才有權限）
           if (msg.messages.length === 0) {
@@ -359,6 +366,12 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
         }
         case 'error': {
           status.textContent = msg.message
+          // 房間還沒開成功（開房中失敗）：一段時間後自動重試，絕不把訊息送去大廳
+          if (!myRoomId && ws && createRetries < 3) {
+            createRetries += 1
+            clearTimeout(recreateTimer)
+            recreateTimer = setTimeout(startRoom, 1800)
+          }
           return
         }
         case 'room:closed': {
@@ -394,6 +407,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   function disconnect() {
     clearTimeout(reconnectTimer)
     clearTimeout(replyWatchdog)
+    clearTimeout(recreateTimer)
     if (ws) {
       if (myRoomId) {
         try { ws.send(JSON.stringify({ type: 'room:leave', roomId: myRoomId })) } catch (_) { /* ignore */ }

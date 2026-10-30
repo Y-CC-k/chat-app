@@ -42,7 +42,7 @@ export interface ServerUser {
 // ── Client → Server ──────────────────────────────────────────────
 
 export type ClientMsg =
-  | { type: 'hello'; nickname: string; color?: string }
+  | { type: 'hello'; nickname: string; color?: string; /** widget 訪客不進大廳：大廳訊息不流入外掛 */ skipLobby?: boolean }
   | { type: 'chat'; roomId: string; text: string }
   | { type: 'typing'; roomId: string; typing: boolean }
   | { type: 'room:create'; name: string }
