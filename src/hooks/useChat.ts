@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  ENGLISH_ROOM_ID,
   LOBBY_ID,
   type ChatMessage,
   type ClientMsg,
@@ -39,6 +40,7 @@ export function useChat() {
   const [audio, setAudio] = useState<Record<string, string>>({})
 
   const autoSpeakRef = useRef(autoSpeak)
+  const tutorModeRef = useRef(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const activeRoomRef = useRef<string | null>(null)
@@ -315,13 +317,26 @@ export function useChat() {
     })
   }, [])
 
-  /** 進入／離開英文教室：進入後所有訊息自動翻譯（伺服器處理） */
+  /** 進入／離開英文教室：加入／離開獨立的「英文教室」房（朗讀與自動翻譯只有該房有） */
   const toggleTutor = useCallback(() => {
-    setTutorMode((prev) => {
-      const next = !prev
-      send({ type: 'tutor', enabled: next })
-      return next
-    })
+    if (tutorModeRef.current) {
+      // 離開英文教室：伺服器會把我們退出房間，畫面切回大廳
+      tutorModeRef.current = false
+      setTutorMode(false)
+      send({ type: 'tutor', enabled: false })
+      if (activeRoomRef.current === ENGLISH_ROOM_ID) {
+        pendingRoomRef.current = LOBBY_ID
+        activeRoomRef.current = LOBBY_ID
+        setActiveRoomId(LOBBY_ID)
+        send({ type: 'room:join', roomId: LOBBY_ID })
+      }
+      return
+    }
+    // 進入英文教室：伺服器送 joined 後自動切換過去
+    tutorModeRef.current = true
+    setTutorMode(true)
+    pendingRoomRef.current = ENGLISH_ROOM_ID
+    send({ type: 'tutor', enabled: true })
   }, [send])
 
   return {

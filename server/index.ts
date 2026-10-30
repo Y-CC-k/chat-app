@@ -15,6 +15,7 @@ import {
   BOT_EN_USER_ID,
   BOT_NICKNAME,
   BOT_USER_ID,
+  ENGLISH_ROOM_ID,
   LOBBY_ID,
   MAX_MESSAGES_PER_ROOM,
   MAX_NICKNAME_LENGTH,
@@ -33,7 +34,6 @@ import {
 } from '../shared/protocol'
 import {
   commandReply,
-  extractTutorQuery,
   fallbackReply,
   greetingReply,
   isBotMention,
@@ -64,8 +64,6 @@ interface UserConn {
   nickname: string
   color: string
   alive: boolean
-  /** 已進入英文教室：自己的訊息自動翻譯 */
-  tutorMode: boolean
 }
 
 interface Room {
@@ -300,6 +298,24 @@ function ensureLobby(): Room {
   return lobby
 }
 
+/** 內建英文教室：像大廳一樣永不解散，朗讀（TTS）與自動翻譯唯一的房間 */
+function ensureEnglishRoom(): Room {
+  const existing = rooms.get(ENGLISH_ROOM_ID)
+  if (existing) return existing
+  const room: Room = {
+    id: ENGLISH_ROOM_ID,
+    name: '英文教室',
+    ownerId: null,
+    ownerName: null,
+    expiresAt: null,
+    messages: [],
+    members: new Map(),
+    botEnabled: false,
+  }
+  rooms.set(room.id, room)
+  return room
+}
+
 /** 解散聊天室：通知成員並從清單移除（大廳永不解散） */
 function closeRoom(room: Room, reason: string): void {
   if (!rooms.has(room.id)) return
@@ -332,7 +348,7 @@ function sweepRooms(): void {
     // 保留期外的舊訊息從記憶體剪掉（Supabase 有定時清掃）
     const freshness = room.messages.filter((m) => m.ts >= retentionCutoff)
     if (freshness.length !== room.messages.length) room.messages = freshness
-    if (room.id === LOBBY_ID) continue
+    if (room.id === LOBBY_ID || room.id === ENGLISH_ROOM_ID) continue
     if (room.members.size === 0) {
       rooms.delete(room.id)
       persistRoomDelete(room.id)
@@ -399,10 +415,12 @@ function roomSummaries(): RoomSummary[] {
       expiresAt: room.expiresAt,
     }
   })
-  // 大廳固定在最前面，其餘依最後活動時間排序
+  // 大廳固定最前面、英文教室接力，其餘依最後活動時間排序
   list.sort((a, b) => {
     if (a.id === LOBBY_ID) return -1
     if (b.id === LOBBY_ID) return 1
+    if (a.id === ENGLISH_ROOM_ID) return -1
+    if (b.id === ENGLISH_ROOM_ID) return 1
     return (b.lastMessage?.ts ?? 0) - (a.lastMessage?.ts ?? 0)
   })
   return list
@@ -484,9 +502,11 @@ function botDeliver(room: Room, text: string, persona: BotPersona = HELPER): voi
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
   scheduleSave()
 
-  // AI 語音：依內容語言選聲音（英文 → 英文聲，中文 → 台灣聲）
-  const voice: 'en' | 'zh' = isMostlyChinese(message.text) ? 'zh' : 'en'
-  void deliverTts(room, message, voice)
+  // AI 語音：朗讀只在「英文教室」啟用（依內容語言選聲音；其他房間一律靜音）
+  if (room.id === ENGLISH_ROOM_ID) {
+    const voice: 'en' | 'zh' = isMostlyChinese(message.text) ? 'zh' : 'en'
+    void deliverTts(room, message, voice)
+  }
 }
 
 /** 產生語音並廣播給房間成員（失敗靜默，前端有瀏覽器 TTS 備援） */
@@ -618,6 +638,11 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
 
   // 英文助教的翻譯指令
   if (cmd.name === '翻譯' || cmd.name === '翻' || cmd.name === 'translate') {
+    // 翻譯與朗讀是英文教室的專屬功能：其他房間只引導，不翻譯
+    if (room.id !== ENGLISH_ROOM_ID) {
+      botReplyPrivate(conn, room.id, '📢 翻譯與朗讀只有在「英文教室」才有喔！請從房間清單加入「英文教室」。', TUTOR)
+      return
+    }
     if (!cmd.args) {
       botReplyPrivate(conn, room.id, tutorIntro(), TUTOR)
       return
@@ -652,8 +677,8 @@ function leaveRoom(conn: UserConn, room: Room, announce = true): void {
   if (!room.members.has(conn.userId)) return
   room.members.delete(conn.userId)
   if (announce) postSystemMessage(room, `${conn.nickname} 離開了「${room.name}」`)
-  // 自建聊天室 0 人時立即消失（大廳除外）
-  if (room.id !== LOBBY_ID && room.members.size === 0) {
+  // 自建聊天室 0 人時立即消失（大廳與英文教室除外）
+  if (room.id !== LOBBY_ID && room.id !== ENGLISH_ROOM_ID && room.members.size === 0) {
     closeRoom(room, '沒有人留在聊天室，已自動解散')
     return
   }
@@ -783,20 +808,17 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
     scheduleSave()
 
-    // 英文助教：被點名時負責翻譯
-    if (isTutorMention(text)) {
-      const query = extractTutorQuery(text)
-      if (!query) {
-        botReplyPublic(room, tutorIntro(), TUTOR)
-      } else {
-        tutorTranslateReply(room, query, conn.nickname)
-      }
+    // 英文教室：房內唯一有朗讀功能——自己的訊息朗讀＋英文助教自動翻譯
+    if (room.id === ENGLISH_ROOM_ID) {
+      const voice: 'en' | 'zh' = isMostlyChinese(text) ? 'zh' : 'en'
+      void deliverTts(room, message, voice)
+      tutorTranslateReply(room, text, conn.nickname)
       return
     }
 
-    // 英文教室模式：自己的訊息自動翻譯處理
-    if (conn.tutorMode) {
-      tutorTranslateReply(room, text, conn.nickname)
+    // 其他房間沒有英文教室功能（不翻譯、不朗讀）：改成引導到英文教室
+    if (isTutorMention(text)) {
+      botReplyPrivate(conn, room.id, '📢 朗讀與翻譯只有在「英文教室」才有喔！請從房間清單加入「英文教室」，英文助教在那邊等你！', TUTOR)
       return
     }
 
@@ -843,17 +865,14 @@ function handleClientMsg(conn: UserConn, raw: string): void {
   }
 
   if (msg.type === 'tutor') {
-    conn.tutorMode = msg.enabled === true
-    const lobbyRoom = rooms.get(LOBBY_ID)
-    if (lobbyRoom && lobbyRoom.members.has(conn.userId)) {
-      botReplyPrivate(
-        conn,
-        lobbyRoom.id,
-        conn.tutorMode
-          ? '👨‍🏫 已進入英文教室！你之後傳的訊息會自動翻譯（中→英）並朗讀，其他同學也看得到。要離開請再點一次「英文助教」按鈕。'
-          : '👋 已離開英文教室，恢復一般聊天模式。',
-        TUTOR,
-      )
+    // 前端「英文教室」按鈕：開 = 加入英文教室房；關 = 離開（房間本身永不解散）
+    if (msg.enabled === true) {
+      const room = ensureEnglishRoom()
+      joinRoom(conn, room)
+      send(conn, { type: 'joined', roomId: room.id, messages: displayMessages(room) })
+    } else {
+      const room = rooms.get(ENGLISH_ROOM_ID)
+      if (room) leaveRoom(conn, room)
     }
     return
   }
@@ -957,7 +976,6 @@ wss.on('connection', (socket: WebSocket) => {
     nickname: '',
     color: pickColor(crypto.randomUUID()),
     alive: true,
-    tutorMode: false,
   }
   connections.add(conn)
 
@@ -1040,10 +1058,13 @@ async function setupAndStart(): Promise<void> {
       console.error('[chat] Supabase 載入發生錯誤', error)
     }
     ensureLobby()
+    ensureEnglishRoom()
     if (rooms.has(LOBBY_ID)) await persistRoom(rooms.get(LOBBY_ID)!)
+    if (rooms.has(ENGLISH_ROOM_ID)) await persistRoom(rooms.get(ENGLISH_ROOM_ID)!)
   } else {
     loadStoreFromFile()
     ensureLobby()
+    ensureEnglishRoom()
   }
 
   sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間

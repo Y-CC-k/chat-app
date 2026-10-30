@@ -107,6 +107,9 @@ export const BOT_USER_ID = 'bot-helper'
 export const BOT_NICKNAME = '小幫手'
 export const BOT_COLOR = '#8b5cf6'
 
+/** 內建英文教室 ID：永遠存在、唯一具備朗讀／自動翻譯功能的房間 */
+export const ENGLISH_ROOM_ID = 'english-room'
+
 /** 內建英文助教機器人（中文→英文翻譯與朗讀） */
 export const BOT_EN_USER_ID = 'bot-en-tutor'
 export const BOT_EN_NICKNAME = '英文助教'

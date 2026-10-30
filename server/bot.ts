@@ -80,18 +80,6 @@ export function isTutorMention(text: string): boolean {
   return text.includes(TUTOR_TRIGGER)
 }
 
-/** 抽出「英文助教」後面的要翻譯內容；沒有內容回傳 null */
-export function extractTutorQuery(text: string): string | null {
-  const query = text
-    .split(TUTOR_TRIGGER)
-    .join(' ')
-    .trim()
-    // 去掉開頭可能的 @ 或標點
-    .replace(/^[@:：,，、\s]+/, '')
-    .trim()
-  return query || null
-}
-
 /** 判斷是否以中文為主（決定翻譯方向） */
 export function isMostlyChinese(text: string): boolean {
   const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length
@@ -107,11 +95,10 @@ export function isMostlyEnglish(text: string): boolean {
 
 export function tutorIntro(): string {
   return [
-    '我是英文助教 📣 你可以：',
-    '1. 訊息中說「英文助教」＋想翻的內容，例如「英文助教 今天天氣很好」',
-    '2. 或使用「/翻譯 內容」指令',
-    '我會把中文翻成英文，並用自己的聲音唸出來（點訊息旁的 🔊 可以再聽一次）。',
-    '英文句子給我，我也會翻回中文喔！',
+    '我是英文助教 📣 歡迎來到英文教室！',
+    '1. 直接打想說的中文：我會幫你翻成英文，並用標準美國口音唸出來',
+    '2. 打英文句子：我會翻回中文，幫你確認意思',
+    '每句訊息（包括你自己的）都會朗讀——這裡是全聊天室唯一有朗讀的房間喔！',
   ].join('\n')
 }
 

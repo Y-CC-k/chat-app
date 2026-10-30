@@ -90,7 +90,7 @@ export function ChatWindow({
           <button
             type="button"
             className={`bot-toggle tutor-mode${tutorMode ? ' on' : ''}`}
-            title={tutorMode ? '離開英文教室（訊息停止自動翻譯）' : '進入英文教室：自己的訊息自動翻譯並朗讀'}
+            title={tutorMode ? '離開英文教室' : '加入英文教室：翻譯＋朗讀（全聊天室只有這間有）'}
             onClick={onToggleTutor}
           >
             🇺🇸 英文教室{tutorMode ? '中' : ''}
@@ -111,7 +111,7 @@ export function ChatWindow({
 
       {tutorMode && (
         <div className="tutor-banner">
-          🇺🇸 英文教室中：訊息會自動翻譯成英文並朗讀（點上方按鈕可離開）
+          🇺🇸 英文教室中：每句訊息都會朗讀，你說的話英文助教會幫你翻譯（點上方按鈕離開）
         </div>
       )}
 
