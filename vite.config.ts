@@ -15,6 +15,9 @@ export default defineConfig({
         target: 'ws://localhost:4001',
         ws: true,
       },
+      '/upload': {
+        target: 'http://localhost:4001',
+      },
     },
   },
   resolve: {
