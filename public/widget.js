@@ -389,10 +389,6 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
           createRetries = 0
           clearTimeout(recreateTimer)
           myRoomId = msg.roomId
-          // 開新房後啟用機器人（房主才有權限）
-          if (msg.messages.length === 0) {
-            ws.send(JSON.stringify({ type: 'bot', roomId: myRoomId, enabled: true }))
-          }
           resetList()
           for (const m of msg.messages.slice(-30)) addMessage(m)
           //

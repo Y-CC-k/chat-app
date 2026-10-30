@@ -19,7 +19,6 @@ interface ChatWindowProps {
   onSendImage: (file: File) => void
   onTyping: () => void
   onLeave: (roomId: string) => void
-  onBotToggle: (roomId: string, enabled: boolean) => void
   onToggleAutoSpeak: () => void
   onToggleTutor: () => void
 }
@@ -38,7 +37,6 @@ export function ChatWindow({
   onSendImage,
   onTyping,
   onLeave,
-  onBotToggle,
   onToggleAutoSpeak,
   onToggleTutor,
 }: ChatWindowProps) {
@@ -75,16 +73,6 @@ export function ChatWindow({
             </span>
           ))}
           {room.members.length > 5 && <span className="member-more">+{room.members.length - 5}</span>}
-          {room.id !== ENGLISH_ROOM_ID && (
-            <button
-              type="button"
-              className={`bot-toggle${room.botEnabled ? ' on' : ''}`}
-              title={room.botEnabled ? '關閉機器人自動答詢' : '開啟機器人自動答詢'}
-              onClick={() => onBotToggle(room.id, !room.botEnabled)}
-            >
-              🤖 機器人{room.botEnabled ? '開' : '關'}
-            </button>
-          )}
           {room.id === ENGLISH_ROOM_ID && (
             <button
               type="button"

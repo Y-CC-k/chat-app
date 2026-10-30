@@ -774,7 +774,10 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       return
     }
     const cleaned = maskSensitiveWords(sanitizeText(msg.text ?? '', MAX_TEXT_LENGTH), BLOCKED_WORDS)
-    const text = cleaned.text
+    let text = cleaned.text
+    // 「@ 問題」：不用開關，開頭為 @ 即視為向機器人提問（@ 後可接空格）
+    const askedByAt = text.startsWith('@') && (text.length === 1 || text[1] === ' ' || text[1] === '\t')
+    if (askedByAt) text = text.slice(1).trim()
     // 貼圖／圖片訊息：text 可為空，但 image/sticker 其一必須存在
     let sticker = typeof msg.sticker === 'string' ? msg.sticker.trim().slice(0, 8) : ''
     if (sticker && ![...sticker].every((ch) => /[\p{Emoji}\p{Emoji_Component}]/u.test(ch))) sticker = ''
@@ -826,10 +829,6 @@ function handleClientMsg(conn: UserConn, raw: string): void {
         void deliverTts(room, message, voice)
         tutorTranslateReply(room, text, conn.nickname)
       }
-      // 圖片／貼圖訊息仍朗讀其 alt 文字（若無文字則不朗讀）
-      if (image || sticker) {
-        // 不自動翻譯圖片；僅朗讀貼圖 emoji 的英文描述（由瀏覽器 TTS 處理）
-      }
       return
     }
 
@@ -853,11 +852,12 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     const memberNicknames = new Set([...room.members.values()].map((m) => m.nickname))
     const onlyOwnerInside = memberNicknames.size === 1 && memberNicknames.has(room.ownerName ?? '')
     const privateHelper = room.botEnabled && room.ownerId !== null && onlyOwnerInside
-    if (room.botEnabled || mention || privateHelper) {
+    // 「@ 問題」或私人小幫手房：每句都視為提問
+    if (askedByAt || room.botEnabled || mention || privateHelper) {
       if (faqHit) {
         botReplyPublic(room, faqHit.answer)
         logBotQa(text, faqHit.answer, 'faq', conn.nickname, room.name)
-      } else if (mention || privateHelper) {
+      } else if (mention || privateHelper || askedByAt) {
         // 點名小幫手：智慧答詢（LLM，未設定則罐頭）
         void helperSmartReply(room, text, isQuestion(text), conn.nickname)
       }
