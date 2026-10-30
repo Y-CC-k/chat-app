@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { LOBBY_ID, type ChatMessage, type RoomSummary, type ServerUser } from '@shared/protocol'
+import { ENGLISH_ROOM_ID, LOBBY_ID, type ChatMessage, type RoomSummary, type ServerUser } from '@shared/protocol'
 import type { TypingUser } from '../hooks/useChat'
 import { Avatar } from './Avatar'
 import { MessageList } from './MessageList'
@@ -71,30 +71,45 @@ export function ChatWindow({
             </span>
           ))}
           {room.members.length > 5 && <span className="member-more">+{room.members.length - 5}</span>}
-          <button
-            type="button"
-            className={`bot-toggle${room.botEnabled ? ' on' : ''}`}
-            title={room.botEnabled ? '關閉機器人自動答詢' : '開啟機器人自動答詢'}
-            onClick={() => onBotToggle(room.id, !room.botEnabled)}
-          >
-            🤖 機器人{room.botEnabled ? '開' : '關'}
-          </button>
-          <button
-            type="button"
-            className={`bot-toggle speak-toggle${autoSpeak ? ' on' : ''}`}
-            title={autoSpeak ? '關閉英文助教自動朗讀' : '開啟英文助教自動朗讀'}
-            onClick={onToggleAutoSpeak}
-          >
-            🔊 朗讀{autoSpeak ? '開' : '關'}
-          </button>
-          <button
-            type="button"
-            className={`bot-toggle tutor-mode${tutorMode ? ' on' : ''}`}
-            title={tutorMode ? '離開英文教室' : '加入英文教室：翻譯＋朗讀（全聊天室只有這間有）'}
-            onClick={onToggleTutor}
-          >
-            🇺🇸 英文教室{tutorMode ? '中' : ''}
-          </button>
+          {room.id !== ENGLISH_ROOM_ID && (
+            <button
+              type="button"
+              className={`bot-toggle${room.botEnabled ? ' on' : ''}`}
+              title={room.botEnabled ? '關閉機器人自動答詢' : '開啟機器人自動答詢'}
+              onClick={() => onBotToggle(room.id, !room.botEnabled)}
+            >
+              🤖 機器人{room.botEnabled ? '開' : '關'}
+            </button>
+          )}
+          {room.id === ENGLISH_ROOM_ID && (
+            <button
+              type="button"
+              className={`bot-toggle speak-toggle${autoSpeak ? ' on' : ''}`}
+              title={autoSpeak ? '關閉朗讀' : '開啟朗讀'}
+              onClick={onToggleAutoSpeak}
+            >
+              🔊 朗讀{autoSpeak ? '開' : '關'}
+            </button>
+          )}
+          {room.id !== ENGLISH_ROOM_ID ? (
+            <button
+              type="button"
+              className={tutorMode ? 'bot-toggle tutor-mode on' : 'bot-toggle tutor-mode'}
+              title="加入英文教室：翻譯＋朗讀（全聊天室只有這間有）"
+              onClick={onToggleTutor}
+            >
+              🇺🇸 加入英文教室
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="bot-toggle tutor-mode on"
+              title="離開英文教室"
+              onClick={onToggleTutor}
+            >
+              🇺🇸 英文教室中 · 離開
+            </button>
+          )}
         </div>
         {room.id !== LOBBY_ID && (
           <button type="button" className="btn-ghost leave-btn" onClick={() => onLeave(room.id)}>
