@@ -64,6 +64,8 @@ interface UserConn {
   nickname: string
   color: string
   alive: boolean
+  /** true = 來自校園網站的浮動 widget（skipLobby），私人小幫手房自動答詢 */
+  isWidget: boolean
 }
 
 interface Room {
@@ -728,6 +730,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       ? msg.color
       : conn.color
     conn.color = color
+    conn.isWidget = msg.skipLobby === true
     // hello 之後一律送出 welcome；新連線再自動加入大廳（widget 訪客帶 skipLobby，不進大廳）
     send(conn, { type: 'welcome', user: { userId: conn.userId, nickname, color } })
     if (isNew && msg.skipLobby !== true) joinRoom(conn, ensureLobby())
@@ -872,12 +875,13 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     const memberNicknames = new Set([...room.members.values()].map((m) => m.nickname))
     const onlyOwnerInside = memberNicknames.size === 1 && memberNicknames.has(room.ownerName ?? '')
     const privateHelper = room.botEnabled && room.ownerId !== null && onlyOwnerInside
-    // 「@ 問題」或私人小幫手房：每句都視為提問
-    if (askedByAt || room.botEnabled || mention || privateHelper) {
+    // 網頁版：每句都由機器人回答（不用 @）；widget 私人房維持每句必回；@ 仍可強制提問
+    const webUser = !conn.isWidget
+    if (webUser || askedByAt || room.botEnabled || mention || privateHelper) {
       if (faqHit) {
         botReplyPublic(room, faqHit.answer)
         logBotQa(text, faqHit.answer, 'faq', conn.nickname, room.name)
-      } else if (mention || privateHelper || askedByAt) {
+      } else if (mention || privateHelper || askedByAt || webUser) {
         // 點名小幫手：智慧答詢（LLM，未設定則罐頭）
         void helperSmartReply(room, text, isQuestion(text), conn.nickname)
       }
@@ -1092,6 +1096,7 @@ wss.on('connection', (socket: WebSocket) => {
     nickname: '',
     color: pickColor(crypto.randomUUID()),
     alive: true,
+    isWidget: false,
   }
   connections.add(conn)
 
