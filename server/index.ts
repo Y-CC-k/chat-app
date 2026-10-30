@@ -50,6 +50,8 @@ import {
   type Command,
 } from './bot'
 import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
+import { calendarPlainAnswer, isCalendarQuestion, schoolCalendarContext } from './calendar'
+import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext } from './schoolinfo'
 import { synthesize } from './tts'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 import { loadBlockedWords, maskSensitiveWords } from './moderation'
@@ -511,15 +513,41 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
       context.push({ role: 'user', content: `${m.senderName}：${m.text}` })
     }
   }
+  // 學校事情查證：即時抓學校網站（佈告欄／行事曆）→ 教育局網站，把真資料交給 LLM
+  let systemPrompt = HELPER_SYSTEM_PROMPT
+  const webParts: string[] = []
+  const cal = isCalendarQuestion(questionText) ? await schoolCalendarContext() : null
+  if (cal) webParts.push(cal)
+  const info = await schoolWebContext(questionText)
+  if (info) webParts.push(info)
+  if (webParts.length > 0) {
+    systemPrompt += `\n\n以下是剛剛即時從「學校網站／教育局網站」查到的參考資料，回答時以資料為準，資料裡沒有的細節不可編造：\n\n${webParts.join('\n\n')}`
+  }
   botTyping(room, HELPER, true)
-  const answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: HELPER_SYSTEM_PROMPT }, ...context]) : null
+  const answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: systemPrompt }, ...context]) : null
   botTyping(room, HELPER, false)
   if (answer) {
     botDeliver(room, answer)
     logBotQa(questionText, answer, 'llm', asker, room.name)
     return
   }
-  // 沒有 LLM 或呼叫失敗：沿用罐頭回覆
+  // 沒有 LLM 或呼叫失敗：能查到的真資料直接念出來（行事曆 → 學校公告 → 罐頭）
+  if (isCalendarQuestion(questionText)) {
+    const plain = await calendarPlainAnswer()
+    if (plain) {
+      botDeliver(room, plain)
+      logBotQa(questionText, plain, 'fallback', asker, room.name)
+      return
+    }
+  }
+  if (isSchoolInfoQuestion(questionText)) {
+    const board = await schoolBoardPlainAnswer()
+    if (board) {
+      botDeliver(room, board)
+      logBotQa(questionText, board, 'fallback', asker, room.name)
+      return
+    }
+  }
   const fallback = question ? fallbackReply() : greetingReply()
   botDeliver(room, fallback)
   logBotQa(questionText, fallback, 'fallback', asker, room.name)
@@ -609,8 +637,14 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
 
 function joinRoom(conn: UserConn, room: Room, announce = true): void {
   if (room.members.has(conn.userId)) return
+  // 同暱稱的死連線（關掉的舊分頁／剛斷線的舊 socket）先清掉：人數不膨脹、也不顯示一堆重複「加入了」
+  for (const [uid, m] of [...room.members]) {
+    if (m.nickname === conn.nickname && m.socket.readyState >= 2) room.members.delete(uid)
+  }
+  // 還有活的同暱稱成員（同一人多開）就不重播加入語
+  const quiet = !announce || [...room.members.values()].some((m) => m.nickname === conn.nickname)
   room.members.set(conn.userId, conn)
-  if (announce) postSystemMessage(room, `${conn.nickname} 加入了「${room.name}」`)
+  if (!quiet) postSystemMessage(room, `${conn.nickname} 加入了「${room.name}」`)
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
 }
 

@@ -262,19 +262,16 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   }
 
   function addMessage(m) {
-    const row = el('div', 'msg' + (m.kind === 'system' ? ' system' : m.senderId === myUserId ? ' self' : ''))
-    if (m.kind !== 'system') {
-      const nameLine = m.senderId === myUserId ? null : el('div', 'name', m.senderName)
-      const bubble = el('div', 'bubble', m.text)
-      if (nameLine) {
-        const wrap = el('div')
-        wrap.append(nameLine, bubble)
-        row.appendChild(wrap)
-      } else {
-        row.appendChild(bubble)
-      }
+    if (m.kind === 'system') return // 加入／離開／解散等系統訊息：私人小幫手情境不需要，不顯示
+    const row = el('div', 'msg' + (m.senderId === myUserId ? ' self' : ''))
+    const nameLine = m.senderId === myUserId ? null : el('div', 'name', m.senderName)
+    const bubble = el('div', 'bubble', m.text)
+    if (nameLine) {
+      const wrap = el('div')
+      wrap.append(nameLine, bubble)
+      row.appendChild(wrap)
     } else {
-      row.appendChild(el('div', 'bubble', m.text))
+      row.appendChild(bubble)
     }
     list.appendChild(row)
     list.scrollTop = list.scrollHeight
