@@ -180,6 +180,15 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
         fab.textContent = closed ? '💬' : '✕'
       }
       fab.appendChild(img)
+      if (closed) {
+        // 圖示浮水印：「槺榔機器人」
+        const wm = el('span', 'fab-wm', '槺榔機器人')
+        wm.style.cssText =
+          'position:absolute;left:0;right:0;bottom:2px;text-align:center;' +
+          'font-size:9px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);' +
+          'pointer-events:none;z-index:2;line-height:1'
+        fab.appendChild(wm)
+      }
       if (!closed) {
         // 打開狀態：圖上疊一個半透明 ✕ 表示可收回
         const over = el('span', 'fab-x', '✕')
@@ -190,6 +199,14 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
       }
     } else {
       fab.textContent = closed ? '💬' : '✕'
+      if (closed) {
+        const wm = el('span', 'fab-wm', '槺榔機器人')
+        wm.style.cssText =
+          'position:absolute;left:0;right:0;bottom:2px;text-align:center;' +
+          'font-size:9px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);' +
+          'pointer-events:none;z-index:2;line-height:1'
+        fab.appendChild(wm)
+      }
     }
     fab.appendChild(badge)
   }
