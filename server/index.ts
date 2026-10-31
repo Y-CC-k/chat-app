@@ -13,10 +13,14 @@ import {
   BOT_EN_COLOR,
   BOT_EN_NICKNAME,
   BOT_EN_USER_ID,
+  BOT_MATH_COLOR,
+  BOT_MATH_NICKNAME,
+  BOT_MATH_USER_ID,
   BOT_NICKNAME,
   BOT_USER_ID,
   ENGLISH_ROOM_ID,
   LOBBY_ID,
+  MATH_ROOM_ID,
   MAX_MESSAGES_PER_ROOM,
   MAX_NICKNAME_LENGTH,
   MAX_ROOMS_PER_USER,
@@ -53,6 +57,25 @@ import { HELPER_SYSTEM_PROMPT, llmChatChain, loadLlmConfig } from './llm'
 import { calendarPlainAnswer, isCalendarQuestion, schoolCalendarContext } from './calendar'
 import { isSchoolInfoQuestion, schoolBoardPlainAnswer, schoolWebContext, webSearch, weatherContext } from './schoolinfo'
 import { synthesize } from './tts'
+import {
+  MATH_SYSTEM_PROMPT,
+  activeQuiz,
+  correctReply,
+  expireQuizIfNeeded,
+  extractAnswer,
+  firstAttemptEncouragement,
+  isMathTutorMention,
+  isQuizAnswer,
+  mathFallbackReply,
+  mathIntro,
+  parseQuizLevel,
+  quizLevelName,
+  quizQuestionReply,
+  startQuiz,
+  stopQuiz,
+  timeUpReply,
+  wrongAnswerHint,
+} from './math'
 import { createSupabaseStore, loadSupabaseConfig, type ChatRoomRow } from './db'
 import { loadBlockedWords, maskSensitiveWords } from './moderation'
 
@@ -162,8 +185,8 @@ if (db) console.log('[chat] 對話歷史將存入 Supabase')
 else console.log('[chat] Supabase 未設定（SUPABASE_* 環境變數），歷史存 JSON 檔')
 
 /** 房間 → Supabase 列（資料有變動時呼叫；訊息插入前會先確保房間列存在） */
-async function persistRoom(room: Room): Promise<void> {
-  if (!db) return
+async function persistRoom(room: Room): Promise<boolean> {
+  if (!db) return false
   const row: ChatRoomRow = {
     id: room.id,
     name: room.name,
@@ -172,16 +195,23 @@ async function persistRoom(room: Room): Promise<void> {
     expiresAt: room.expiresAt,
     botEnabled: room.botEnabled,
   }
-  await db.upsertRoom(row)
-  persistedRoomIds.add(room.id)
+  try {
+    await db.upsertRoom(row)
+    persistedRoomIds.add(room.id)
+    return true
+  } catch (error) {
+    // 房間列真的寫不進去時不要標記成已寫入：後續訊息還會再補寫
+    console.error('[chat] 房間存入 Supabase 失敗', error instanceof Error ? error.message : error)
+    return false
+  }
 }
 
 /** 單則訊息寫入 Supabase（fire-and-forget；房間列不存在時先補寫） */
 function persistMessage(message: ChatMessage): void {
   if (!db) return
   const room = rooms.get(message.roomId)
-  const ensureRoom = room && !persistedRoomIds.has(message.roomId) ? persistRoom(room) : Promise.resolve()
-  void ensureRoom.then(() => db.insertMessage(message)).catch((error) => {
+  const ensureRoom = room && !persistedRoomIds.has(message.roomId) ? persistRoom(room) : Promise.resolve(true)
+  void ensureRoom.then((ok) => (ok ? db.insertMessage(message) : null)).catch((error) => {
     console.error('[chat] 訊息存入 Supabase 失敗', error instanceof Error ? error.message : error)
   })
 }
@@ -194,17 +224,7 @@ function logBotQa(question: string, answer: string, source: string, asker: strin
 
 /** 房間資料有變動（例如機器人開關）時更新 Supabase */
 async function persistRoomState(room: Room): Promise<void> {
-  if (!db) return
-  const row: ChatRoomRow = {
-    id: room.id,
-    name: room.name,
-    ownerId: room.ownerId,
-    ownerName: room.ownerName,
-    expiresAt: room.expiresAt,
-    botEnabled: room.botEnabled,
-  }
-  await db.upsertRoom(row)
-  persistedRoomIds.add(room.id)
+  await persistRoom(room)
 }
 
 /** 房間消失時從 Supabase 移除（對話一併 cascade 刪除） */
@@ -318,7 +338,25 @@ function ensureEnglishRoom(): Room {
   return room
 }
 
-/** 解散聊天室：通知成員並從清單移除（大廳永不解散） */
+/** 內建數學教室：像大廳一樣永不解散，數學助教（引導＋小考）唯一的房間 */
+function ensureMathRoom(): Room {
+  const existing = rooms.get(MATH_ROOM_ID)
+  if (existing) return existing
+  const room: Room = {
+    id: MATH_ROOM_ID,
+    name: '數學教室',
+    ownerId: null,
+    ownerName: null,
+    expiresAt: null,
+    messages: [],
+    members: new Map(),
+    botEnabled: true,
+  }
+  rooms.set(room.id, room)
+  return room
+}
+
+/** 解散聊天室：通知成員並從清單移除（大廳、英文教室、數學教室永不解散） */
 function closeRoom(room: Room, reason: string): void {
   if (!rooms.has(room.id)) return
   const message: ChatMessage = {
@@ -337,6 +375,7 @@ function closeRoom(room: Room, reason: string): void {
   }
   room.members.clear()
   rooms.delete(room.id)
+  stopQuiz(room.id)
   persistRoomDelete(room.id)
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
   scheduleSave()
@@ -350,9 +389,17 @@ function sweepRooms(): void {
     // 保留期外的舊訊息從記憶體剪掉（Supabase 有定時清掃）
     const freshness = room.messages.filter((m) => m.ts >= retentionCutoff)
     if (freshness.length !== room.messages.length) room.messages = freshness
-    if (room.id === LOBBY_ID || room.id === ENGLISH_ROOM_ID) continue
+    // 數學小考逾時：公布答案並結束
+    const expiredQuiz = expireQuizIfNeeded(room.id)
+    if (expiredQuiz) {
+      const reply = timeUpReply(expiredQuiz)
+      botDeliver(room, reply, MATH_TUTOR)
+      logBotQa(expiredQuiz.question, reply, 'math', expiredQuiz.asker, room.name)
+    }
+    if (room.id === LOBBY_ID || room.id === ENGLISH_ROOM_ID || room.id === MATH_ROOM_ID) continue
     if (room.members.size === 0) {
       rooms.delete(room.id)
+      stopQuiz(room.id)
       persistRoomDelete(room.id)
       scheduleSave()
       broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
@@ -423,6 +470,8 @@ function roomSummaries(): RoomSummary[] {
     if (b.id === LOBBY_ID) return 1
     if (a.id === ENGLISH_ROOM_ID) return -1
     if (b.id === ENGLISH_ROOM_ID) return 1
+    if (a.id === MATH_ROOM_ID) return -1
+    if (b.id === MATH_ROOM_ID) return 1
     return (b.lastMessage?.ts ?? 0) - (a.lastMessage?.ts ?? 0)
   })
   return list
@@ -460,6 +509,7 @@ interface BotPersona {
 
 const HELPER: BotPersona = { id: BOT_USER_ID, name: BOT_NICKNAME, color: BOT_COLOR }
 const TUTOR: BotPersona = { id: BOT_EN_USER_ID, name: BOT_EN_NICKNAME, color: BOT_EN_COLOR }
+const MATH_TUTOR: BotPersona = { id: BOT_MATH_USER_ID, name: BOT_MATH_NICKNAME, color: BOT_MATH_COLOR }
 
 function botMessage(roomId: string, text: string, persona: BotPersona = HELPER, ts = Date.now()): ChatMessage {
   // bot／LLM 產出的文字同樣過敏感詞，避免回嘴內容破功
@@ -621,8 +671,97 @@ function tutorTranslateReply(room: Room, query: string, asker: string): void {
     .finally(() => botTyping(room, TUTOR, false))
 }
 
+/** 數學教室訊息處理：小考作答即時批改；其他語句走引導式回答 */
+function handleMathRoomChat(conn: UserConn, room: Room, text: string): void {
+  if (!text) return
+  // 小考進行中：訊息為純數字時視同作答
+  const quiz = activeQuiz(room.id)
+  if (quiz) {
+    const expired = expireQuizIfNeeded(room.id)
+    if (expired) {
+      const reply = timeUpReply(expired)
+      botDeliver(room, reply, MATH_TUTOR)
+      logBotQa(expired.question, reply, 'math', expired.asker, room.name)
+    } else if (isQuizAnswer(text, faqs)) {
+      const value = extractAnswer(text)
+      if (value !== null) {
+        if (Math.abs(value - quiz.answer) < 0.0001) {
+          // 答對：稱讚並結束這一題
+          const reply = `${correctReply()}\n你把「${quiz.question.replace(' = ？', '')}」算出來了！想再來一題就輸入 /數學小考 🎯`
+          botDeliver(room, reply, MATH_TUTOR)
+          logBotQa(quiz.question, `答對（${value}）`, 'math', conn.nickname, room.name)
+          stopQuiz(room.id)
+        } else {
+          // 答錯：先給提示引導，第三次公布答案
+          quiz.wrongCount += 1
+          const reply = quiz.wrongCount === 1 ? `${firstAttemptEncouragement()}\n${wrongAnswerHint(quiz)}` : wrongAnswerHint(quiz)
+          botDeliver(room, reply, MATH_TUTOR)
+          logBotQa(quiz.question, `答錯（${value}）→ ${reply.split('\n')[0]}`, 'math', conn.nickname, room.name)
+          if (quiz.wrongCount >= 3) stopQuiz(room.id)
+        }
+      }
+      return
+    }
+    // 小考進行中但訊息不是作答：照常走引導回答
+  }
+  void mathSmartReply(room, text, isQuestion(text), conn.nickname)
+}
+
+/** 數學助教的引導式回答：有 LLM 就用數學系統提示（不直接給答案），失敗退回引導罐頭 */
+async function mathSmartReply(room: Room, questionText: string, question: boolean, asker: string): Promise<void> {
+  const context: { role: 'user' | 'assistant'; content: string }[] = []
+  for (const m of room.messages.slice(-14)) {
+    if (m.kind !== 'chat') continue
+    if (m.senderId === BOT_MATH_USER_ID) {
+      context.push({ role: 'assistant', content: m.text })
+    } else {
+      context.push({ role: 'user', content: `${m.senderName}：${m.text}` })
+    }
+  }
+  botTyping(room, MATH_TUTOR, true)
+  const answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: MATH_SYSTEM_PROMPT }, ...context], 120) : null
+  botTyping(room, MATH_TUTOR, false)
+  const finalText = limitReply(answer ?? mathFallbackReply(question), 160)
+  botDeliver(room, finalText, MATH_TUTOR)
+  logBotQa(questionText, finalText, 'math', asker, room.name)
+}
+
 /** 處理「/」開頭的指令（不會廣播給其他人） */
 function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
+  // 數學小考：只有數學教室有（其他房引導）
+  if (cmd.name === '數學小考' || cmd.name === '小考') {
+    if (room.id !== MATH_ROOM_ID) {
+      botReplyPrivate(conn, room.id, '📢 數學小考只有在「數學教室」才有喔！請從房間清單加入「數學教室」。', MATH_TUTOR)
+      return
+    }
+    const existing = activeQuiz(room.id)
+    if (existing) {
+      botReplyPublic(room, `📝 這題還沒解開：${existing.question}\n直接輸入數字作答；想換題先輸入 /停止小考`, MATH_TUTOR)
+      return
+    }
+    const level = parseQuizLevel(cmd.args) ?? 1
+    const quiz = startQuiz(room.id, level, conn.nickname, conn.userId)
+    botReplyPublic(room, quizQuestionReply(quiz), MATH_TUTOR)
+    logBotQa(quiz.question, `開始 ${quizLevelName(quiz.level)}小考`, 'math', conn.nickname, room.name)
+    return
+  }
+
+  if (cmd.name === '停止小考') {
+    if (room.id !== MATH_ROOM_ID) {
+      botReplyPrivate(conn, room.id, '📢 數學小考只有在「數學教室」才有喔！', MATH_TUTOR)
+      return
+    }
+    const stopped = stopQuiz(room.id)
+    botReplyPublic(
+      room,
+      stopped
+        ? `🛑 小考結束。剛剛的題目 ${stopped.question.replace(' = ？', '')} = ${stopped.answer}，想再挑戰輸入 /數學小考`
+        : '現在沒有進行中的小考喔！輸入 /數學小考 開始一場 🎯',
+      MATH_TUTOR,
+    )
+    return
+  }
+
   // 需要操作房間資料的指令
   if (cmd.name === '成員' || cmd.name === 'members') {
     const names = [...room.members.values()].map((m) => m.nickname).concat(room.botEnabled ? [BOT_NICKNAME] : [])
@@ -702,8 +841,8 @@ function leaveRoom(conn: UserConn, room: Room, announce = true): void {
   if (!room.members.has(conn.userId)) return
   room.members.delete(conn.userId)
   if (announce) postSystemMessage(room, `${conn.nickname} 離開了「${room.name}」`)
-  // 自建聊天室 0 人時立即消失（大廳與英文教室除外）
-  if (room.id !== LOBBY_ID && room.id !== ENGLISH_ROOM_ID && room.members.size === 0) {
+  // 內建永久房（大廳／英文教室／數學教室）與自建房 0 人時：只有自建房會消失
+  if (room.id !== LOBBY_ID && room.id !== ENGLISH_ROOM_ID && room.id !== MATH_ROOM_ID && room.members.size === 0) {
     closeRoom(room, '沒有人留在聊天室，已自動解散')
     return
   }
@@ -848,6 +987,12 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
     scheduleSave()
 
+    // 數學教室：數學助教駐守——小考作答與數學問題都在這間處理
+    if (room.id === MATH_ROOM_ID) {
+      handleMathRoomChat(conn, room, text)
+      return
+    }
+
     // 英文教室：房內唯一有朗讀功能——自己的訊息朗讀＋英文助教自動翻譯
     if (room.id === ENGLISH_ROOM_ID) {
       if (text) {
@@ -861,6 +1006,12 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     // 其他房間沒有英文教室功能（不翻譯、不朗讀）：改成引導到英文教室
     if (isTutorMention(text)) {
       botReplyPrivate(conn, room.id, '📢 朗讀與翻譯只有在「英文教室」才有喔！請從房間清單加入「英文教室」，英文助教在那邊等你！', TUTOR)
+      return
+    }
+
+    // 其他房間提到數學助教：引導到數學教室
+    if (isMathTutorMention(text)) {
+      botReplyPrivate(conn, room.id, '📢 數學助教在「數學教室」喔！從房間清單加入「數學教室」，還可以玩 /數學小考 🎯', MATH_TUTOR)
       return
     }
 
@@ -909,11 +1060,17 @@ function handleClientMsg(conn: UserConn, raw: string): void {
   }
 
   if (msg.type === 'tutor') {
-    // 前端「英文教室」按鈕：開 = 加入英文教室房；關 = 離開（房間本身永不解散）
+    // 前端主題教室按鈕：開 = 加入對應教室房；關 = 離開（房間永不解散）
+    // subject 預設英文教室；'math' = 數學教室
+    const math = msg.subject === 'math'
     if (msg.enabled === true) {
-      const room = ensureEnglishRoom()
+      const room = math ? ensureMathRoom() : ensureEnglishRoom()
       joinRoom(conn, room)
       send(conn, { type: 'joined', roomId: room.id, messages: displayMessages(room) })
+      if (math) botReplyPrivate(conn, room.id, mathIntro(), MATH_TUTOR)
+    } else if (math) {
+      const room = rooms.get(MATH_ROOM_ID)
+      if (room) leaveRoom(conn, room)
     } else {
       const room = rooms.get(ENGLISH_ROOM_ID)
       if (room) leaveRoom(conn, room)
@@ -1183,13 +1340,16 @@ async function setupAndStart(): Promise<void> {
     }
     ensureLobby()
     ensureEnglishRoom()
+    ensureMathRoom()
     if (rooms.has(LOBBY_ID)) await persistRoom(rooms.get(LOBBY_ID)!)
     if (rooms.has(ENGLISH_ROOM_ID)) await persistRoom(rooms.get(ENGLISH_ROOM_ID)!)
+    if (rooms.has(MATH_ROOM_ID)) await persistRoom(rooms.get(MATH_ROOM_ID)!)
     await ensureChatImagesBucket()
   } else {
     loadStoreFromFile()
     ensureLobby()
     ensureEnglishRoom()
+    ensureMathRoom()
     await ensureChatImagesBucket()
   }
 

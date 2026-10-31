@@ -1,4 +1,4 @@
-import { BOT_EN_USER_ID, BOT_USER_ID, type ChatMessage, type ServerUser } from '@shared/protocol'
+import { BOT_EN_USER_ID, BOT_MATH_USER_ID, BOT_USER_ID, type ChatMessage, type ServerUser } from '@shared/protocol'
 import { formatTime } from '../utils/format'
 import { speak } from '../utils/speech'
 import { Avatar } from './Avatar'
@@ -57,6 +57,7 @@ export function MessageList({ messages, user, audio }: MessageListProps) {
               {message.senderName}
               {message.senderId === BOT_USER_ID && <span className="bot-tag">🤖 機器人</span>}
               {message.senderId === BOT_EN_USER_ID && <span className="bot-tag en">🇺🇸 英文助教</span>}
+              {message.senderId === BOT_MATH_USER_ID && <span className="bot-tag math">🧮 數學助教</span>}
             </span>
             <div className="msg-with-time">
               <div className="bubble other-bubble">{bubbleContent}</div>

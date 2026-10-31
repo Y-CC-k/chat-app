@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ENGLISH_ROOM_ID,
   LOBBY_ID,
+  MATH_ROOM_ID,
   type ChatMessage,
   type ClientMsg,
   type RoomSummary,
@@ -37,10 +38,12 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null)
   const [autoSpeak, setAutoSpeak] = useState(() => loadAutoSpeak())
   const [tutorMode, setTutorMode] = useState(false)
+  const [mathMode, setMathMode] = useState(false)
   const [audio, setAudio] = useState<Record<string, string>>({})
 
   const autoSpeakRef = useRef(autoSpeak)
   const tutorModeRef = useRef(false)
+  const mathModeRef = useRef(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const activeRoomRef = useRef<string | null>(null)
@@ -386,6 +389,26 @@ export function useChat() {
     send({ type: 'tutor', enabled: true })
   }, [send])
 
+  /** 進入／離開數學教室：加入／離開獨立的「數學教室」房（數學助教＋小考只有該房有） */
+  const toggleMathTutor = useCallback(() => {
+    if (mathModeRef.current) {
+      mathModeRef.current = false
+      setMathMode(false)
+      send({ type: 'tutor', enabled: false, subject: 'math' })
+      if (activeRoomRef.current === MATH_ROOM_ID) {
+        pendingRoomRef.current = LOBBY_ID
+        activeRoomRef.current = LOBBY_ID
+        setActiveRoomId(LOBBY_ID)
+        send({ type: 'room:join', roomId: LOBBY_ID })
+      }
+      return
+    }
+    mathModeRef.current = true
+    setMathMode(true)
+    pendingRoomRef.current = MATH_ROOM_ID
+    send({ type: 'tutor', enabled: true, subject: 'math' })
+  }, [send])
+
   return {
     status,
     user,
@@ -397,6 +420,7 @@ export function useChat() {
     error,
     autoSpeak,
     tutorMode,
+    mathMode,
     audio,
     login,
     openRoom,
@@ -409,5 +433,6 @@ export function useChat() {
     botToggle,
     toggleAutoSpeak,
     toggleTutor,
+    toggleMathTutor,
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ENGLISH_ROOM_ID, LOBBY_ID, type ChatMessage, type RoomSummary, type ServerUser } from '@shared/protocol'
+import { ENGLISH_ROOM_ID, LOBBY_ID, MATH_ROOM_ID, type ChatMessage, type RoomSummary, type ServerUser } from '@shared/protocol'
 import type { TypingUser } from '../hooks/useChat'
 import { Avatar } from './Avatar'
 import { MessageList } from './MessageList'
@@ -14,6 +14,7 @@ interface ChatWindowProps {
   error: string | null
   autoSpeak: boolean
   tutorMode: boolean
+  mathMode: boolean
   onSend: (text: string) => void
   onSendSticker: (emoji: string) => void
   onSendImage: (file: File) => void
@@ -21,6 +22,7 @@ interface ChatWindowProps {
   onLeave: (roomId: string) => void
   onToggleAutoSpeak: () => void
   onToggleTutor: () => void
+  onToggleMathTutor: () => void
 }
 
 export function ChatWindow({
@@ -32,6 +34,7 @@ export function ChatWindow({
   error,
   autoSpeak,
   tutorMode,
+  mathMode,
   onSend,
   onSendSticker,
   onSendImage,
@@ -39,6 +42,7 @@ export function ChatWindow({
   onLeave,
   onToggleAutoSpeak,
   onToggleTutor,
+  onToggleMathTutor,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -102,6 +106,26 @@ export function ChatWindow({
               🇺🇸 英文教室中 · 離開
             </button>
           )}
+          {room.id !== MATH_ROOM_ID && room.id !== ENGLISH_ROOM_ID && (
+            <button
+              type="button"
+              className={mathMode ? 'bot-toggle math-mode on' : 'bot-toggle math-mode'}
+              title="加入數學教室：數學助教引導＋自動出題小考"
+              onClick={onToggleMathTutor}
+            >
+              ➗ 加入數學教室
+            </button>
+          )}
+          {room.id === MATH_ROOM_ID && (
+            <button
+              type="button"
+              className="bot-toggle math-mode on"
+              title="離開數學教室"
+              onClick={onToggleMathTutor}
+            >
+              ➗ 數學教室中 · 離開
+            </button>
+          )}
         </div>
         {room.id !== LOBBY_ID && (
           <button type="button" className="btn-ghost leave-btn" onClick={() => onLeave(room.id)}>
@@ -116,13 +140,19 @@ export function ChatWindow({
 
       {error && <div className="error-banner">{error}</div>}
 
-      {tutorMode && (
+      {tutorMode && room.id === ENGLISH_ROOM_ID && (
         <div className="tutor-banner">
           🇺🇸 英文教室中：每句訊息都會朗讀，你說的話英文助教會幫你翻譯（點上方按鈕離開）
         </div>
       )}
 
-      <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} />
+      {mathMode && room.id === MATH_ROOM_ID && (
+        <div className="tutor-banner math-banner">
+          ➗ 數學教室中：直接問數學題，數學助教會一步一步引導你想出答案；輸入 /數學小考 開始小考
+        </div>
+      )}
+
+      <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} mathMode={room.id === MATH_ROOM_ID} />
     </main>
   )
 }

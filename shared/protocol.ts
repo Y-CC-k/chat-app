@@ -53,7 +53,7 @@ export type ClientMsg =
   | { type: 'room:join'; roomId: string }
   | { type: 'room:leave'; roomId: string }
   | { type: 'bot'; roomId: string; enabled: boolean }
-  | { type: 'tutor'; enabled: boolean }
+  | { type: 'tutor'; enabled: boolean; /** 要加入哪間主題教室（預設英文教室） */ subject?: 'english' | 'math' }
 
 // ── Server → Client ──────────────────────────────────────────────
 
@@ -118,6 +118,14 @@ export const ENGLISH_ROOM_ID = 'english-room'
 export const BOT_EN_USER_ID = 'bot-en-tutor'
 export const BOT_EN_NICKNAME = '英文助教'
 export const BOT_EN_COLOR = '#3b82f6'
+
+/** 內建數學教室 ID：永遠存在、數學助教駐守（逐題引導＋自動出題小考） */
+export const MATH_ROOM_ID = 'math-room'
+
+/** 內建數學助教機器人（解題提示引導＋小考出題批改） */
+export const BOT_MATH_USER_ID = 'bot-math-tutor'
+export const BOT_MATH_NICKNAME = '數學助教'
+export const BOT_MATH_COLOR = '#f97316'
 
 /** 單則自訂 FAQ */
 export interface FaqEntry {

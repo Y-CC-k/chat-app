@@ -1,4 +1,4 @@
-import { LOBBY_ID, type RoomSummary, type ServerUser } from '@shared/protocol'
+import { LOBBY_ID, MATH_ROOM_ID, type RoomSummary, type ServerUser } from '@shared/protocol'
 import type { ChatStatus } from '../hooks/useChat'
 import { formatListTime } from '../utils/format'
 import { Avatar } from './Avatar'
@@ -59,7 +59,11 @@ export function Sidebar({ user, status, rooms, activeRoomId, unread, onSelectRoo
                 className={`room-item${room.id === activeRoomId ? ' active' : ''}`}
                 onClick={() => onSelectRoom(room.id)}
               >
-                <Avatar name={room.name} color={room.id === LOBBY_ID ? '#06c755' : '#3b82f6'} size={44} />
+                <Avatar
+                  name={room.name}
+                  color={room.id === LOBBY_ID ? '#06c755' : room.id === MATH_ROOM_ID ? '#f97316' : '#3b82f6'}
+                  size={44}
+                />
                 <div className="room-item-main">
                   <div className="room-item-top">
                     <span className="room-item-name">{room.name}</span>

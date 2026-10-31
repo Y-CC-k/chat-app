@@ -446,6 +446,11 @@ ul {
   background: #eaf1fe;
 }
 
+.bot-tag.math {
+  color: #ea580c;
+  background: #fff1e7;
+}
+
 .speak-btn {
   font-size: 14px;
   margin-bottom: 2px;
@@ -473,6 +478,18 @@ ul {
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
+}
+
+/* 數學教室：橘色主題 */
+.bot-toggle.math-mode.on:not(:hover) {
+  background: #f97316;
+  border-color: #f97316;
+  color: #fff;
+}
+
+.tutor-banner.math-banner {
+  background: #fff1e7;
+  color: #c2410c;
 }
 
 .leave-btn {
@@ -773,7 +790,7 @@ ul {
 }
 
 
-/* �K�ϡ��Ϥ� */
+/* �K�ϡ��Ϥ� */
 .msg-image { max-width: 260px; max-height: 260px; border-radius: 12px; display: block; margin: 2px 0; }
 .msg-sticker { font-size: 64px; line-height: 1; }
 .sticker-panel { position: absolute; bottom: 64px; left: 60px; width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 34px rgba(0,0,0,0.16); padding: 10px; display: grid; grid-template-columns: repeat(8,1fr); gap: 6px; z-index: 5; }

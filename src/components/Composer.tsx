@@ -13,6 +13,7 @@ const STICKERS = ['😀','😂','😍','🤔','👍','❤️','🎉','🔥','⭐
 interface ComposerProps {
   typingHint: string | null
   tutorMode: boolean
+  mathMode: boolean
   onSend: (text: string) => void
   onSendSticker: (emoji: string) => void
   onSendImage: (file: File) => void
@@ -20,7 +21,7 @@ interface ComposerProps {
 }
 
 /** 訊息輸入列：文字方塊、表情符號、貼圖、圖片、送出 */
-export function Composer({ typingHint, tutorMode, onSend, onSendSticker, onSendImage, onTyping }: ComposerProps) {
+export function Composer({ typingHint, tutorMode, mathMode, onSend, onSendSticker, onSendImage, onTyping }: ComposerProps) {
   const [text, setText] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
   const [showSticker, setShowSticker] = useState(false)
@@ -140,7 +141,9 @@ export function Composer({ typingHint, tutorMode, onSend, onSendSticker, onSendI
           placeholder={
             tutorMode
               ? '輸入中文，英文助教會自動翻譯成英文並唸出…'
-              : '輸入訊息…（Enter 送出，Shift+Enter 換行）'
+              : mathMode
+                ? '問數學題，或輸入 /數學小考 開始小考…'
+                : '輸入訊息…（Enter 送出，Shift+Enter 換行）'
           }
           rows={1}
           maxLength={MAX_TEXT_LENGTH}
