@@ -905,7 +905,8 @@ function handleClientMsg(conn: UserConn, raw: string): void {
       expiresAt: Date.now() + ROOM_LIFETIME,
       messages: [],
       members: new Map(),
-      botEnabled: false,
+      // widget（校網浮動外掛）開的私人小幫手房：建立即啟用機器人（每句必回）
+      botEnabled: conn.isWidget,
     }
     rooms.set(room.id, room)
     void persistRoom(room)
@@ -1024,11 +1025,12 @@ function handleClientMsg(conn: UserConn, raw: string): void {
 
     // 機器人：被點名必回；開啟時，訊息命中自訂 FAQ 也會自動回答
     // 私人小幫手房：房內只有房主本人（同暱稱；同一人開多個分頁也算）時，每句都視同點名，保證有回應
+    // widget 使用者的私人房一律視同已啟用（舊房間 botEnabled=false 也能回，避免外掛問話無反應）
     const mention = isBotMention(text)
     const faqHit = matchFaq(text, faqs)
     const memberNicknames = new Set([...room.members.values()].map((m) => m.nickname))
     const onlyOwnerInside = memberNicknames.size === 1 && memberNicknames.has(room.ownerName ?? '')
-    const privateHelper = room.botEnabled && room.ownerId !== null && onlyOwnerInside
+    const privateHelper = (room.botEnabled || conn.isWidget) && room.ownerId !== null && onlyOwnerInside
     // 網頁版：每句都由機器人回答（不用 @）；widget 私人房維持每句必回；@ 仍可強制提問
     const webUser = !conn.isWidget
     if (webUser || askedByAt || room.botEnabled || mention || privateHelper) {
