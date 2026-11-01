@@ -94,12 +94,15 @@ function pickDefaultVoice(lang: 'en-US' | 'zh-TW'): SpeechSynthesisVoice | undef
   return exact ?? voices[0]
 }
 
+/** 待播的朗讀 timer：取消時要一起清掉，避免舊的朗讀在取消後又突然開始 */
+let pendingSpeakTimer: number | null = null
+
 export function speakText(text: string, options: SpeakOptions = {}): void {
   const synth = window.speechSynthesis
   if (!synth) throw new Error('此瀏覽器不支援語音朗讀')
   if (!text.trim()) return
 
-  synth.cancel()
+  stopSpeaking()
 
   const lang = options.lang ?? 'en-US'
   const utterance = new SpeechSynthesisUtterance(text)
@@ -124,11 +127,20 @@ export function speakText(text: string, options: SpeakOptions = {}): void {
     }
   }
 
-  activeUtterance = utterance
-  synth.speak(utterance)
+  // Chrome 的已知問題：cancel() 後立刻 speak() 會把開頭幾個字吃掉（引擎未釋放完），
+  // 延遲一小段時間再開始唸，第一個字才會完整。
+  pendingSpeakTimer = window.setTimeout(() => {
+    pendingSpeakTimer = null
+    activeUtterance = utterance
+    synth.speak(utterance)
+  }, 250)
 }
 
 export function stopSpeaking(): void {
+  if (pendingSpeakTimer !== null) {
+    window.clearTimeout(pendingSpeakTimer)
+    pendingSpeakTimer = null
+  }
   activeUtterance = null
   window.speechSynthesis?.cancel()
 }

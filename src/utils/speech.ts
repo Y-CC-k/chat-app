@@ -8,20 +8,31 @@ export function toAudioUrl(base64: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
 }
 
+/** 待播的朗讀 timer：取消時一併清掉，避免取消後舊朗讀又開始 */
+let pendingSpeakTimer: number | null = null
+
 /** 用瀏覽器內建語音合成朗讀（英文） */
 export function speak(text: string): boolean {
   const synth = window.speechSynthesis
   if (!synth) return false
-  synth.cancel()
+  stopSpeak()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'en-US'
   utterance.rate = 0.9
   utterance.pitch = 1
-  synth.speak(utterance)
+  // Chrome 已知問題：cancel() 後立刻 speak() 會吃掉開頭幾個字，延遲後再唸
+  pendingSpeakTimer = window.setTimeout(() => {
+    pendingSpeakTimer = null
+    synth.speak(utterance)
+  }, 250)
   return true
 }
 
 export function stopSpeak(): void {
+  if (pendingSpeakTimer !== null) {
+    window.clearTimeout(pendingSpeakTimer)
+    pendingSpeakTimer = null
+  }
   window.speechSynthesis?.cancel()
 }
 
