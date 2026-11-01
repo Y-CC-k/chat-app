@@ -17,6 +17,10 @@ export default function App() {
   }
 
   if (chat.status !== 'ready' || !chat.user) {
+    // 有記住的登入資料（重新整理自動登回）→ 不顯示登入表單，避免閃一下登入畫面
+    if (chat.savedLogin) {
+      return <div className="app-loading">💬 連線中…</div>
+    }
     return <LoginScreen connecting={chat.status === 'connecting'} onLogin={chat.login} />
   }
 

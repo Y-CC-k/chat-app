@@ -99,6 +99,9 @@ export function useChat() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastTypingRef = useRef(0)
 
+  /** localStorage 有記住的暱稱 → 重新整理時不顯示登入表單（避免先閃一下登入畫面） */
+  const [savedLogin, setSavedLogin] = useState(() => profileRef.current !== null)
+
   const showStatusError = useCallback((message: string) => {
     setError(message)
     window.setTimeout(() => setError((current) => (current === message ? null : current)), 3000)
@@ -310,6 +313,7 @@ export function useChat() {
       profileRef.current = { nickname, color }
       // 記住登入資料，重新整理／重開瀏覽器後自動登回
       saveProfile(profileRef.current)
+      setSavedLogin(true)
       sendHello()
     },
     [sendHello],
@@ -353,6 +357,7 @@ export function useChat() {
     profileRef.current = null
     saveProfile(null)
     saveActiveRoom(null)
+    setSavedLogin(false)
     setUser(null)
     setRooms([])
     setMessages({})
@@ -506,6 +511,7 @@ export function useChat() {
     typing,
     error,
     autoSpeak,
+    savedLogin,
     tutorMode,
     mathMode,
     audio,

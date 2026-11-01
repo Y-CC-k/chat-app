@@ -94,6 +94,20 @@ ul {
   background: linear-gradient(160deg, #06c755 0%, #0aab4c 55%, #067f3a 100%);
 }
 
+/* 自動登回時的過渡畫面：不顯示登入表單，避免重新整理先閃一下登入畫面 */
+.app-loading {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: linear-gradient(160deg, #06c755 0%, #0aab4c 55%, #067f3a 100%);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 .login-card {
   width: 380px;
   background: var(--panel);
