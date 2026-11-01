@@ -824,23 +824,19 @@ function handleCommand(conn: UserConn, room: Room, cmd: Command): void {
   }
 }
 
-function joinRoom(conn: UserConn, room: Room, announce = true): void {
+function joinRoom(conn: UserConn, room: Room): void {
   if (room.members.has(conn.userId)) return
-  // 同暱稱的死連線（關掉的舊分頁／剛斷線的舊 socket）先清掉：人數不膨脹、也不顯示一堆重複「加入了」
+  // 同暱稱的死連線（關掉的舊分頁／剛斷線的舊 socket）先清掉：人數不膨脹
   for (const [uid, m] of [...room.members]) {
     if (m.nickname === conn.nickname && m.socket.readyState >= 2) room.members.delete(uid)
   }
-  // 還有活的同暱稱成員（同一人多開）就不重播加入語
-  const quiet = !announce || [...room.members.values()].some((m) => m.nickname === conn.nickname)
   room.members.set(conn.userId, conn)
-  if (!quiet) postSystemMessage(room, `${conn.nickname} 加入了「${room.name}」`)
   broadcastToAll({ type: 'rooms', rooms: roomSummaries() })
 }
 
-function leaveRoom(conn: UserConn, room: Room, announce = true): void {
+function leaveRoom(conn: UserConn, room: Room): void {
   if (!room.members.has(conn.userId)) return
   room.members.delete(conn.userId)
-  if (announce) postSystemMessage(room, `${conn.nickname} 離開了「${room.name}」`)
   // 內建永久房（大廳／英文教室／數學教室）與自建房 0 人時：只有自建房會消失
   if (room.id !== LOBBY_ID && room.id !== ENGLISH_ROOM_ID && room.id !== MATH_ROOM_ID && room.members.size === 0) {
     closeRoom(room, '沒有人留在聊天室，已自動解散')
@@ -910,7 +906,7 @@ function handleClientMsg(conn: UserConn, raw: string): void {
     }
     rooms.set(room.id, room)
     void persistRoom(room)
-    joinRoom(conn, room, false)
+    joinRoom(conn, room)
     send(conn, { type: 'joined', roomId: room.id, messages: displayMessages(room) })
     postSystemMessage(room, `${conn.nickname} 建立了「${room.name}」（存活 ${Math.round(ROOM_LIFETIME / 60000)} 分鐘，沒有人時會立即解散）`)
     return
@@ -1277,7 +1273,7 @@ wss.on('connection', (socket: WebSocket) => {
   socket.on('close', () => {
     connections.delete(conn)
     for (const room of rooms.values()) {
-      if (room.members.has(conn.userId)) leaveRoom(conn, room, true)
+      if (room.members.has(conn.userId)) leaveRoom(conn, room)
     }
   })
 
