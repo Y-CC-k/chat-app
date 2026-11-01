@@ -381,7 +381,7 @@ function closeRoom(room: Room, reason: string): void {
   scheduleSave()
 }
 
-/** 定時清掃：逾時或 0 人的自建聊天室自動消失；訊息超過保留期（14 天）的剪掉 */
+/** 定時清掃：逾時或 0 人的自建聊天室自動消失；訊息超過保留期（15 天）的剪掉 */
 function sweepRooms(): void {
   const now = Date.now()
   const retentionCutoff = now - RETENTION
@@ -409,7 +409,7 @@ function sweepRooms(): void {
   }
 }
 
-/** 定時清除 Supabase 裡超過保留期（14 天）的訊息與機器人問答記錄 */
+/** 定時清除 Supabase 裡超過保留期（15 天）的訊息與機器人問答記錄 */
 function scheduleSupabasePurge(): void {
   if (!db) return
   const flush = () => {
@@ -1356,7 +1356,7 @@ async function setupAndStart(): Promise<void> {
   }
 
   sweepRooms() // 重新啟動時立刻清掉上次殘留的空房間／逾時房間
-  scheduleSupabasePurge() // Supabase：啟動時與每 6 小時清掉 14 天前的舊訊息
+  scheduleSupabasePurge() // Supabase：啟動時與每 6 小時清掉 15 天前的舊訊息
   httpServer.listen(PORT, () => {
     console.log(`[chat] 聊天伺服器啟動於 ws://localhost:${PORT}/ws`)
   })

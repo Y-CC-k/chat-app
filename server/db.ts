@@ -124,7 +124,7 @@ class SupabaseStore {
   async loadState(): Promise<{ rooms: ChatRoomState[]; faqs: FaqEntry[] } | null> {
     const roomRows = await this.rest<DbRoomRow[]>('GET', 'chat_rooms?select=*')
     if (!roomRows) return null
-    // 只取顯示範圍內（最近 24 小時）且未逾保留期（14 天）的訊息
+    // 只取顯示範圍內（最近 24 小時）且未逾保留期（15 天）的訊息
     const since = Date.now() - MESSAGE_VISIBILITY_MS
     const messageRows =
       (await this.rest<DbMessageRow[]>(
@@ -187,7 +187,7 @@ class SupabaseStore {
     await this.rest('POST', 'chat_messages', [messageToRow(message)])
   }
 
-  /** 清除逾期的舊訊息（保留期 14 天） */
+  /** 清除逾期的舊訊息（保留期 15 天） */
   async purgeOldMessages(): Promise<void> {
     const before = Date.now() - MESSAGE_RETENTION_MS
     await this.rest('DELETE', `chat_messages?ts=lt.${before}`)
@@ -218,7 +218,7 @@ class SupabaseStore {
     ])
   }
 
-  /** 清除逾期的舊問答記錄（保留期與訊息一致：14 天） */
+  /** 清除逾期的舊問答記錄（保留期與訊息一致：15 天） */
   async purgeOldBotQa(): Promise<void> {
     const before = new Date(Date.now() - MESSAGE_RETENTION_MS).toISOString()
     await this.rest('DELETE', `bot_qa_logs?created_at=lt.${encodeURIComponent(before)}`)
