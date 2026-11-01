@@ -43,6 +43,7 @@ export default function App() {
         onSendImage={chat.uploadAndSendImage}
         onTyping={chat.notifyTyping}
         onLeave={chat.leaveRoom}
+        onLogout={chat.logout}
       />
       <NewRoomModal open={modalOpen} onClose={() => setModalOpen(false)} onCreate={handleCreateRoom} />
     </div>

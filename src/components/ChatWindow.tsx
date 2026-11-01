@@ -18,6 +18,7 @@ interface ChatWindowProps {
   onSendImage: (file: File) => void
   onTyping: () => void
   onLeave: (roomId: string) => void
+  onLogout: () => void
 }
 
 export function ChatWindow({
@@ -32,6 +33,7 @@ export function ChatWindow({
   onSendImage,
   onTyping,
   onLeave,
+  onLogout,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -70,6 +72,11 @@ export function ChatWindow({
         {room.id !== LOBBY_ID && (
           <button type="button" className="btn-ghost leave-btn" onClick={() => onLeave(room.id)}>
             退出房間
+          </button>
+        )}
+        {room.id === LOBBY_ID && (
+          <button type="button" className="btn-ghost leave-btn" title="登出聊天室，換人重新登入" onClick={onLogout}>
+            🚪 登出
           </button>
         )}
       </header>

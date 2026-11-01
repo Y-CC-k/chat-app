@@ -348,6 +348,29 @@ export function useChat() {
     [send, openRoom],
   )
 
+  /** 登出：清除記錄的暱稱與房間、重置畫面，重連後停在登入畫面（可換人） */
+  const logout = useCallback(() => {
+    profileRef.current = null
+    saveProfile(null)
+    saveActiveRoom(null)
+    setUser(null)
+    setRooms([])
+    setMessages({})
+    setUnread({})
+    setActiveRoomId(null)
+    activeRoomRef.current = null
+    pendingRoomRef.current = null
+    tutorModeRef.current = false
+    setTutorMode(false)
+    mathModeRef.current = false
+    setMathMode(false)
+    const ws = wsRef.current
+    if (ws) {
+      // 讓 onclose 的自動重連走一遍：重連開啟後 profileRef 是 null → 顯示登入畫面
+      ws.close(1000, 'logout')
+    }
+  }, [])
+
   const sendChat = useCallback(
     (text: string) => {
       const roomId = activeRoomRef.current
@@ -487,6 +510,7 @@ export function useChat() {
     mathMode,
     audio,
     login,
+    logout,
     openRoom,
     createRoom,
     leaveRoom,
