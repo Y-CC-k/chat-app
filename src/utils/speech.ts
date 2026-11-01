@@ -8,8 +8,56 @@ export function toAudioUrl(base64: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
 }
 
-/** 待播的朗讀 timer：取消時一併清掉，避免取消後舊朗讀又開始 */
-let pendingSpeakTimer: number | null = null
+/** speak() 的取消掛鉤清單：stopSpeak() 時把還在等待的朗讀也取消 */
+let stopSpeakHooks: Array<() => void> = []
+
+/** 等引擎空閒→再呼吸一下→才開始唸。
+ *
+ * Chrome 已知問題：引擎釋放沒完成就 speak() 會把開頭幾個字吃掉，
+ * 第一次朗讀正常、連續朗讀第二句起尤其明顯（引擎剛唸完上一句還沒 idle）。
+ * 所以先輪詢 synth.speaking/pending 等引擎空閒，再呼吸 IDLE_BREATHE_MS 才 speak()。
+ */
+function beginWhenIdle(synth: SpeechSynthesis, utterance: SpeechSynthesisUtterance): void {
+  const IDLE_POLL_MS = 60
+  const IDLE_BREATHE_MS = 250
+  const MAX_WAIT_MS = 2000
+
+  let timer: number | null = null
+
+  /** 取消等待中的朗讀；由 stopSpeak() 的掛鉤呼叫 */
+  const clear = () => {
+    if (timer !== null) {
+      window.clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  // 登記取消掛鉤，呼吸結束真正 speak 時移除
+  stopSpeakHooks.push(clear)
+
+  const released = () => {
+    stopSpeakHooks = stopSpeakHooks.filter((h) => h !== clear)
+  }
+
+  const waitStart = Date.now()
+  const attempt = () => {
+    timer = null
+    if (synth.speaking || synth.pending) {
+      // 引擎還在忙，輪詢等待（最長 MAX_WAIT_MS，避免永遠不唸）
+      if (Date.now() - waitStart < MAX_WAIT_MS) {
+        timer = window.setTimeout(attempt, IDLE_POLL_MS)
+      }
+      return
+    }
+    // 引擎空閒了，再呼吸一下讓釋放徹底完成，才真正開始唸
+    timer = window.setTimeout(() => {
+      timer = null
+      released()
+      synth.speak(utterance)
+    }, IDLE_BREATHE_MS)
+  }
+  attempt()
+}
 
 /** 用瀏覽器內建語音合成朗讀（英文） */
 export function speak(text: string): boolean {
@@ -20,19 +68,14 @@ export function speak(text: string): boolean {
   utterance.lang = 'en-US'
   utterance.rate = 0.9
   utterance.pitch = 1
-  // Chrome 已知問題：cancel() 後立刻 speak() 會吃掉開頭幾個字，延遲後再唸
-  pendingSpeakTimer = window.setTimeout(() => {
-    pendingSpeakTimer = null
-    synth.speak(utterance)
-  }, 250)
+  beginWhenIdle(synth, utterance)
   return true
 }
 
 export function stopSpeak(): void {
-  if (pendingSpeakTimer !== null) {
-    window.clearTimeout(pendingSpeakTimer)
-    pendingSpeakTimer = null
-  }
+  const hooks = stopSpeakHooks
+  stopSpeakHooks = []
+  for (const hook of hooks) hook()
   window.speechSynthesis?.cancel()
 }
 
