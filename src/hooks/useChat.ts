@@ -27,6 +27,51 @@ function wsUrl(): string {
   return `${proto}//${window.location.host}/ws`
 }
 
+// ── 登入設定檔與所在房間的持久化（重新整理／重開瀏覽器自動回來） ──
+
+const PROFILE_STORAGE_KEY = 'chat-profile'
+const ACTIVE_ROOM_STORAGE_KEY = 'chat-active-room'
+
+function loadSavedProfile(): { nickname: string; color: string } | null {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { nickname?: unknown; color?: unknown }
+    if (typeof parsed.nickname === 'string' && parsed.nickname.trim() && typeof parsed.color === 'string') {
+      return { nickname: parsed.nickname.trim(), color: parsed.color }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function saveProfile(profile: { nickname: string; color: string } | null): void {
+  try {
+    if (profile) localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile))
+    else localStorage.removeItem(PROFILE_STORAGE_KEY)
+  } catch {
+    // 忽略（隱私模式等）
+  }
+}
+
+function loadSavedRoom(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_ROOM_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveActiveRoom(roomId: string | null): void {
+  try {
+    if (roomId) localStorage.setItem(ACTIVE_ROOM_STORAGE_KEY, roomId)
+    else localStorage.removeItem(ACTIVE_ROOM_STORAGE_KEY)
+  } catch {
+    // 忽略（隱私模式等）
+  }
+}
+
 export function useChat() {
   const [status, setStatus] = useState<ChatStatus>('connecting')
   const [user, setUser] = useState<ServerUser | null>(null)
@@ -48,7 +93,8 @@ export function useChat() {
   const wsRef = useRef<WebSocket | null>(null)
   const activeRoomRef = useRef<string | null>(null)
   const pendingRoomRef = useRef<string | null>(null)
-  const profileRef = useRef<{ nickname: string; color: string } | null>(null)
+  /** 重新整理後自動回登：從 localStorage 載入上次的暱稱（斷線重連、重新整理都用它） */
+  const profileRef = useRef<{ nickname: string; color: string } | null>(loadSavedProfile())
   const reconnectAttemptRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastTypingRef = useRef(0)
@@ -137,9 +183,13 @@ export function useChat() {
       case 'welcome': {
         setUser(msg.user)
         setStatus('ready')
-        // 預設打開大廳並抓取歷史訊息
-        pendingRoomRef.current = LOBBY_ID
+        // 自動回到上次所在的房間（重新整理／重開瀏覽器）；沒有紀錄或未知就回大廳。
+        // 大廳先加入（成員名單、預設保底），再把上次的房間也加入並切換過去。
+        const savedRoom = loadSavedRoom()
+        const target = savedRoom && savedRoom !== LOBBY_ID ? savedRoom : LOBBY_ID
+        pendingRoomRef.current = target
         send({ type: 'room:join', roomId: LOBBY_ID })
+        if (target !== LOBBY_ID) send({ type: 'room:join', roomId: target })
         break
       }
       case 'rooms':
@@ -152,6 +202,8 @@ export function useChat() {
           pendingRoomRef.current = null
           activeRoomRef.current = msg.roomId
           setActiveRoomId(msg.roomId)
+          // 記住現在的房間，重新整理後自動回來
+          saveActiveRoom(msg.roomId)
         }
         break
       }
@@ -212,12 +264,21 @@ export function useChat() {
           activeRoomRef.current = LOBBY_ID
           pendingRoomRef.current = LOBBY_ID
           setActiveRoomId(LOBBY_ID)
+          saveActiveRoom(LOBBY_ID)
           send({ type: 'room:join', roomId: LOBBY_ID })
         }
         showStatusError(`🚪 ${msg.reason}`)
         break
       }
       case 'error':
+        // 自動回上次的房間失敗（例如房間已解散）且還沒進任何房間 → 退回大廳
+        if (!activeRoomRef.current) {
+          pendingRoomRef.current = LOBBY_ID
+          activeRoomRef.current = LOBBY_ID
+          setActiveRoomId(LOBBY_ID)
+          saveActiveRoom(LOBBY_ID)
+          send({ type: 'room:join', roomId: LOBBY_ID })
+        }
         showStatusError(msg.message)
         break
     }
@@ -247,6 +308,8 @@ export function useChat() {
   const login = useCallback(
     (nickname: string, color: string) => {
       profileRef.current = { nickname, color }
+      // 記住登入資料，重新整理／重開瀏覽器後自動登回
+      saveProfile(profileRef.current)
       sendHello()
     },
     [sendHello],
@@ -258,6 +321,7 @@ export function useChat() {
       activeRoomRef.current = roomId
       setActiveRoomId(roomId)
       setUnread((prev) => ({ ...prev, [roomId]: 0 }))
+      saveActiveRoom(roomId)
       send({ type: 'room:join', roomId })
     },
     [send],
