@@ -43,8 +43,6 @@ export default function App() {
         onSendImage={chat.uploadAndSendImage}
         onTyping={chat.notifyTyping}
         onLeave={chat.leaveRoom}
-        autoSpeak={chat.autoSpeak}
-        onToggleAutoSpeak={chat.toggleAutoSpeak}
         tutorMode={chat.tutorMode}
         onToggleTutor={chat.toggleTutor}
         mathMode={chat.mathMode}

@@ -797,3 +797,251 @@ ul {
 .sticker-btn { font-size: 26px; background: none; border: none; cursor: pointer; padding: 4px; border-radius: 8px; }
 .sticker-btn:hover { background: var(--line); }
 .msg-text { margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+
+/* ═══ 英文教室翻譯工作台（介面模式取自 chinese-translator） ═══ */
+.en-studio {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px 20px 32px;
+  width: 100%;
+}
+
+.es-title {
+  font-size: 1.55rem;
+  margin: 0 0 4px;
+}
+
+.es-subtitle {
+  color: var(--text-soft);
+  margin: 0 0 16px;
+}
+
+.es-direction {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 18px;
+  background: var(--panel);
+}
+
+.es-direction button {
+  padding: 9px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.es-direction button.active {
+  background: var(--green);
+  color: #fff;
+}
+
+.es-direction button:not(.active):hover {
+  background: var(--green-light);
+}
+
+.es-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .es-panels { grid-template-columns: 1fr; }
+}
+
+.es-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.es-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--line);
+}
+
+.es-char-count,
+.es-provider {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-soft);
+}
+
+.es-mic {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  margin-right: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.es-mic:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.es-mic.listening {
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: es-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes es-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.es-textarea,
+.es-panel textarea {
+  border: none;
+  outline: none;
+  resize: vertical;
+  padding: 14px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.6;
+  flex: 1;
+  min-height: 160px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.es-actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.es-btn {
+  padding: 10px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.es-btn:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.es-btn.primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.es-btn.primary:hover:not(:disabled) {
+  background: var(--green-dark);
+  color: #fff;
+}
+
+.es-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.es-error {
+  margin-top: 16px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.es-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.es-rate input[type='range'] {
+  accent-color: var(--green);
+  width: 110px;
+  cursor: pointer;
+}
+
+.es-rate-value {
+  color: var(--green-dark);
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.es-voice-select {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.82rem;
+  max-width: 190px;
+  cursor: pointer;
+}
+
+.es-voice-select:hover {
+  border-color: var(--green);
+}
+
+.es-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.es-hint {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.es-hint .es-linklike {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--green-dark);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}

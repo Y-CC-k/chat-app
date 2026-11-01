@@ -4,6 +4,7 @@ import type { TypingUser } from '../hooks/useChat'
 import { Avatar } from './Avatar'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
+import { EnglishStudio } from './EnglishStudio'
 
 interface ChatWindowProps {
   user: ServerUser
@@ -12,7 +13,6 @@ interface ChatWindowProps {
   audio: Record<string, string>
   typingUsers: TypingUser[]
   error: string | null
-  autoSpeak: boolean
   tutorMode: boolean
   mathMode: boolean
   onSend: (text: string) => void
@@ -20,7 +20,6 @@ interface ChatWindowProps {
   onSendImage: (file: File) => void
   onTyping: () => void
   onLeave: (roomId: string) => void
-  onToggleAutoSpeak: () => void
   onToggleTutor: () => void
   onToggleMathTutor: () => void
 }
@@ -32,7 +31,6 @@ export function ChatWindow({
   audio,
   typingUsers,
   error,
-  autoSpeak,
   tutorMode,
   mathMode,
   onSend,
@@ -40,7 +38,6 @@ export function ChatWindow({
   onSendImage,
   onTyping,
   onLeave,
-  onToggleAutoSpeak,
   onToggleTutor,
   onToggleMathTutor,
 }: ChatWindowProps) {
@@ -77,16 +74,6 @@ export function ChatWindow({
             </span>
           ))}
           {room.members.length > 5 && <span className="member-more">+{room.members.length - 5}</span>}
-          {room.id === ENGLISH_ROOM_ID && (
-            <button
-              type="button"
-              className={`bot-toggle speak-toggle${autoSpeak ? ' on' : ''}`}
-              title={autoSpeak ? '關閉朗讀' : '開啟朗讀'}
-              onClick={onToggleAutoSpeak}
-            >
-              🔊 朗讀{autoSpeak ? '開' : '關'}
-            </button>
-          )}
           {room.id !== ENGLISH_ROOM_ID ? (
             <button
               type="button"
@@ -135,16 +122,14 @@ export function ChatWindow({
       </header>
 
       <div className="chat-scroll" ref={scrollRef}>
-        <MessageList messages={messages} user={user} audio={audio} />
+        {room.id === ENGLISH_ROOM_ID ? (
+          <EnglishStudio />
+        ) : (
+          <MessageList messages={messages} user={user} audio={audio} />
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
-
-      {tutorMode && room.id === ENGLISH_ROOM_ID && (
-        <div className="tutor-banner">
-          🇺🇸 英文教室中：每句訊息都會朗讀，你說的話英文助教會幫你翻譯（點上方按鈕離開）
-        </div>
-      )}
 
       {mathMode && room.id === MATH_ROOM_ID && (
         <div className="tutor-banner math-banner">
@@ -152,7 +137,9 @@ export function ChatWindow({
         </div>
       )}
 
-      <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} mathMode={room.id === MATH_ROOM_ID} />
+      {room.id !== ENGLISH_ROOM_ID && (
+        <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} mathMode={room.id === MATH_ROOM_ID} />
+      )}
     </main>
   )
 }
