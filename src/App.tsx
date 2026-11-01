@@ -43,10 +43,6 @@ export default function App() {
         onSendImage={chat.uploadAndSendImage}
         onTyping={chat.notifyTyping}
         onLeave={chat.leaveRoom}
-        tutorMode={chat.tutorMode}
-        onToggleTutor={chat.toggleTutor}
-        mathMode={chat.mathMode}
-        onToggleMathTutor={chat.toggleMathTutor}
       />
       <NewRoomModal open={modalOpen} onClose={() => setModalOpen(false)} onCreate={handleCreateRoom} />
     </div>

@@ -13,15 +13,11 @@ interface ChatWindowProps {
   audio: Record<string, string>
   typingUsers: TypingUser[]
   error: string | null
-  tutorMode: boolean
-  mathMode: boolean
   onSend: (text: string) => void
   onSendSticker: (emoji: string) => void
   onSendImage: (file: File) => void
   onTyping: () => void
   onLeave: (roomId: string) => void
-  onToggleTutor: () => void
-  onToggleMathTutor: () => void
 }
 
 export function ChatWindow({
@@ -31,15 +27,11 @@ export function ChatWindow({
   audio,
   typingUsers,
   error,
-  tutorMode,
-  mathMode,
   onSend,
   onSendSticker,
   onSendImage,
   onTyping,
   onLeave,
-  onToggleTutor,
-  onToggleMathTutor,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -74,45 +66,6 @@ export function ChatWindow({
             </span>
           ))}
           {room.members.length > 5 && <span className="member-more">+{room.members.length - 5}</span>}
-          {room.id !== ENGLISH_ROOM_ID ? (
-            <button
-              type="button"
-              className={tutorMode ? 'bot-toggle tutor-mode on' : 'bot-toggle tutor-mode'}
-              title="加入英文教室：翻譯＋朗讀（全聊天室只有這間有）"
-              onClick={onToggleTutor}
-            >
-              🇺🇸 加入英文教室
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="bot-toggle tutor-mode on"
-              title="離開英文教室"
-              onClick={onToggleTutor}
-            >
-              🇺🇸 英文教室中 · 離開
-            </button>
-          )}
-          {room.id !== MATH_ROOM_ID && room.id !== ENGLISH_ROOM_ID && (
-            <button
-              type="button"
-              className={mathMode ? 'bot-toggle math-mode on' : 'bot-toggle math-mode'}
-              title="加入數學教室：數學助教引導＋自動出題小考"
-              onClick={onToggleMathTutor}
-            >
-              ➗ 加入數學教室
-            </button>
-          )}
-          {room.id === MATH_ROOM_ID && (
-            <button
-              type="button"
-              className="bot-toggle math-mode on"
-              title="離開數學教室"
-              onClick={onToggleMathTutor}
-            >
-              ➗ 數學教室中 · 離開
-            </button>
-          )}
         </div>
         {room.id !== LOBBY_ID && (
           <button type="button" className="btn-ghost leave-btn" onClick={() => onLeave(room.id)}>
@@ -131,14 +84,14 @@ export function ChatWindow({
 
       {error && <div className="error-banner">{error}</div>}
 
-      {mathMode && room.id === MATH_ROOM_ID && (
+      {room.id === MATH_ROOM_ID && (
         <div className="tutor-banner math-banner">
           ➗ 數學教室中：直接問數學題，數學助教會一步一步引導你想出答案；輸入 /數學小考 開始小考
         </div>
       )}
 
       {room.id !== ENGLISH_ROOM_ID && (
-        <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} tutorMode={tutorMode} mathMode={room.id === MATH_ROOM_ID} />
+        <Composer typingHint={typingHint} onSend={onSend} onSendSticker={onSendSticker} onSendImage={onSendImage} onTyping={onTyping} mathMode={room.id === MATH_ROOM_ID} />
       )}
     </main>
   )
