@@ -527,7 +527,7 @@ function botMessage(roomId: string, text: string, persona: BotPersona = HELPER, 
 }
 
 /** 回覆長度原則：超過 max 字時截到最後一個換行／條列，避免切斷句子 */
-function limitReply(text: string, max = 100): string {
+function limitReply(text: string, max = 500): string {
   if (text.length <= max + 10) return text
   let cut = text.slice(0, max)
   const lastNl = cut.lastIndexOf('\n')
@@ -612,14 +612,14 @@ async function helperSmartReply(room: Room, questionText: string, question: bool
     systemPrompt += `\n\n以下是剛剛即時從「學校網站／教育局網站」查到的參考資料，回答時以資料為準，資料裡沒有的細節不可編造：\n\n${webParts.join('\n\n')}`
   }
   botTyping(room, HELPER, true)
-  let answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: systemPrompt }, ...context], 120) : null
+  let answer = LLM.length > 0 ? await llmChatChain(LLM, [{ role: 'system', content: systemPrompt }, ...context], 800) : null
   botTyping(room, HELPER, false)
   if (answer) {
-    // 長度原則：不超過 100 字（超過則截到最後一個換行，避免切斷句子）
-    if (answer.length > 110) {
-      let cut = answer.slice(0, 100)
+    // 長度原則：不超過 500 字（超過則截到最後一個換行，避免切斷句子）
+    if (answer.length > 550) {
+      let cut = answer.slice(0, 500)
       const lastNl = cut.lastIndexOf('\n')
-      if (lastNl > 40) cut = cut.slice(0, lastNl)
+      if (lastNl > 200) cut = cut.slice(0, lastNl)
       answer = cut.trimEnd() + '…'
     }
     botDeliver(room, answer)
